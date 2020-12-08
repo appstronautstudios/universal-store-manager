@@ -10,10 +10,10 @@ import com.android.billingclient.api.SkuDetails;
 import com.anjlab.android.iab.v3.BillingProcessor;
 import com.appstronautstudios.library.utils.StoreEventListener;
 
-import org.jetbrains.annotations.NotNull;
-
 import java.util.ArrayList;
 import java.util.List;
+
+import androidx.annotation.NonNull;
 
 public class StoreManager {
 
@@ -211,7 +211,7 @@ public class StoreManager {
      * provided consumable SKUs. False otherwise. null for either param means default back to
      * managed set
      */
-    public boolean hasAnySubOrConsumable(@NotNull ArrayList<String> subscriptionSkus, @NotNull ArrayList<String> consumableSkus) {
+    public boolean hasAnySubOrConsumable(@NonNull ArrayList<String> subscriptionSkus, @NonNull ArrayList<String> consumableSkus) {
         return isSubscribedToAny(subscriptionSkus) || hasAnyConsumable(consumableSkus);
     }
 
@@ -240,7 +240,7 @@ public class StoreManager {
      * @param consumableSkus - SKUs to check purchase status
      * @return - true if purchased any provided SKUs, false otherwise
      */
-    public boolean hasAnyConsumable(@NotNull ArrayList<String> consumableSkus) {
+    public boolean hasAnyConsumable(@NonNull ArrayList<String> consumableSkus) {
         for (String sku : consumableSkus) {
             if (!consumableSkus.contains(sku)) {
                 throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
@@ -255,7 +255,7 @@ public class StoreManager {
      * @param sku - SKU to check
      * @return - true if subscribed to provided SKU, false otherwise
      */
-    public boolean isSubscribedTo(@NotNull String sku) {
+    public boolean isSubscribedTo(@NonNull String sku) {
         if (!subscriptionSkus.contains(sku)) {
             throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
         } else {
@@ -276,7 +276,7 @@ public class StoreManager {
      * @param subscriptionSkus - SKUs to check subscription status
      * @return - true if subscribed to any provided SKUs, false otherwise
      */
-    public boolean isSubscribedToAny(@NotNull ArrayList<String> subscriptionSkus) {
+    public boolean isSubscribedToAny(@NonNull ArrayList<String> subscriptionSkus) {
         for (String sku : subscriptionSkus) {
             if (!subscriptionSkus.contains(sku)) {
                 throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
