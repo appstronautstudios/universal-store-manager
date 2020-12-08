@@ -10,6 +10,8 @@ import com.android.billingclient.api.SkuDetails;
 import com.anjlab.android.iab.v3.BillingProcessor;
 import com.appstronautstudios.library.utils.StoreEventListener;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,7 +36,7 @@ public class StoreManager {
         return INSTANCE;
     }
 
-    private boolean isStoreLoaded() {
+    public boolean isStoreLoaded() {
         return bp != null && bp.isInitialized();
     }
 
@@ -54,6 +56,14 @@ public class StoreManager {
         } else {
             this.consumableSkus = new ArrayList<>();
         }
+    }
+
+    public void setEventListener(StoreEventListener l) {
+        listener = l;
+    }
+
+    public void removeListener() {
+        listener = null;
     }
 
     public void setupBillingProcessor(final Context context) {
@@ -192,8 +202,8 @@ public class StoreManager {
      * @return - true if subscribed to any of the managed subscription SKUs or if owns any of the
      * managed consumable SKUs. False otherwise
      */
-    public boolean hasPremiumOrSub() {
-        return hasPremiumOrSub(null, null);
+    public boolean hasAnySubOrConsumable() {
+        return hasAnySubOrConsumable(subscriptionSkus, consumableSkus);
     }
 
     /**
@@ -201,67 +211,80 @@ public class StoreManager {
      * provided consumable SKUs. False otherwise. null for either param means default back to
      * managed set
      */
-    public boolean hasPremiumOrSub(ArrayList<String> subscriptionSkus, ArrayList<String> consumableSkus) {
-        ArrayList<String> subSkus = subscriptionSkus;
-        ArrayList<String> consSkus = consumableSkus;
-        if (subscriptionSkus == null) {
-            subSkus = this.subscriptionSkus;
-        }
-        if (consumableSkus == null) {
-            consSkus = this.consumableSkus;
-        }
-
-        return isSubscribedTo(subSkus) || hasAtLeastOnePremium(consSkus);
+    public boolean hasAnySubOrConsumable(@NotNull ArrayList<String> subscriptionSkus, @NotNull ArrayList<String> consumableSkus) {
+        return isSubscribedToAny(subscriptionSkus) || hasAnyConsumable(consumableSkus);
     }
 
-    public boolean hasPremium(String sku) {
-        if (sku != null) {
+    /**
+     * @param sku - SKU to check
+     * @return - true if purchased provided SKU, false otherwise
+     */
+    public boolean hasConsumable(String sku) {
+        if (!consumableSkus.contains(sku)) {
+            throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+        } else {
             ArrayList<String> skus = new ArrayList<>();
             skus.add(sku);
-            return hasAtLeastOnePremium(skus);
-        } else {
-            return false;
+            return hasAnyConsumable(skus);
         }
     }
 
-    public boolean hasAtLeastOnePremium(ArrayList<String> consumableSkus) {
-        if (bp == null || consumableSkus == null) {
-            return false; // probably unnecessary but lets just be safe
-        } else {
-            for (String sku : consumableSkus) {
-                if (bp.isPurchased(sku)) {
-                    return true;
-                }
+    /**
+     * @return - true if purchased any managed consumable, false otherwise
+     */
+    public boolean hasAnyConsumable() {
+        return hasAnyConsumable(consumableSkus);
+    }
+
+    /**
+     * @param consumableSkus - SKUs to check purchase status
+     * @return - true if purchased any provided SKUs, false otherwise
+     */
+    public boolean hasAnyConsumable(@NotNull ArrayList<String> consumableSkus) {
+        for (String sku : consumableSkus) {
+            if (!consumableSkus.contains(sku)) {
+                throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+            } else if (bp.isPurchased(sku)) {
+                return true;
             }
-            return false;
+        }
+        return false;
+    }
+
+    /**
+     * @param sku - SKU to check
+     * @return - true if subscribed to provided SKU, false otherwise
+     */
+    public boolean isSubscribedTo(@NotNull String sku) {
+        if (!subscriptionSkus.contains(sku)) {
+            throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+        } else {
+            ArrayList<String> skus = new ArrayList<>();
+            skus.add(sku);
+            return isSubscribedToAny(skus);
         }
     }
 
-    public boolean isSubscribedTo(String sku) {
-        if (sku != null) {
-            ArrayList<String> skus = new ArrayList<>();
-            skus.add(sku);
-            return isSubscribedTo(skus);
-        } else {
-            return false;
-        }
+    /**
+     * @return - true if subscribed to any SKUs in the managed set, false otherwise
+     */
+    public boolean isSubscribedToAny() {
+        return isSubscribedToAny(subscriptionSkus);
     }
 
     /**
      * @param subscriptionSkus - SKUs to check subscription status
      * @return - true if subscribed to any provided SKUs, false otherwise
      */
-    public boolean isSubscribedTo(ArrayList<String> subscriptionSkus) {
-        if (bp == null || subscriptionSkus == null) {
-            return false; // probably unnecessary but lets just be safe
-        } else {
-            for (String sku : subscriptionSkus) {
-                if (bp.isSubscribed(sku)) {
-                    return true;
-                }
+    public boolean isSubscribedToAny(@NotNull ArrayList<String> subscriptionSkus) {
+        for (String sku : subscriptionSkus) {
+            if (!subscriptionSkus.contains(sku)) {
+                throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+            } else if (bp.isSubscribed(sku)) {
+                return true;
             }
-            return false;
         }
+        return false;
     }
 
     private void checkAndAcknowledgeTransactionDetails() {
@@ -290,13 +313,5 @@ public class StoreManager {
             bp.loadOwnedPurchasesFromGoogle();
             checkAndAcknowledgeTransactionDetails();
         }
-    }
-
-    public void removeListener() {
-        listener = null;
-    }
-
-    public void setEventListener(StoreEventListener l) {
-        listener = l;
     }
 }
