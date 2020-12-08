@@ -44,15 +44,17 @@ public class StoreManager {
         this.licenseKey = licenseKey;
     }
 
-    public void setManagedSkus(ArrayList<String> subscriptionSkus, ArrayList<String> consumableSkus) {
+    public void setManagedSkus(List<String> subscriptionSkus, List<String> consumableSkus) {
         if (subscriptionSkus != null) {
-            this.subscriptionSkus = subscriptionSkus;
+            this.subscriptionSkus.clear();
+            this.subscriptionSkus.addAll(subscriptionSkus);
         } else {
             this.subscriptionSkus = new ArrayList<>();
         }
 
         if (consumableSkus != null) {
-            this.consumableSkus = consumableSkus;
+            this.consumableSkus.clear();
+            this.consumableSkus.addAll(consumableSkus);
         } else {
             this.consumableSkus = new ArrayList<>();
         }
@@ -211,7 +213,7 @@ public class StoreManager {
      * provided consumable SKUs. False otherwise. null for either param means default back to
      * managed set
      */
-    public boolean hasAnySubOrConsumable(@NonNull ArrayList<String> subscriptionSkus, @NonNull ArrayList<String> consumableSkus) {
+    public boolean hasAnySubOrConsumable(@NonNull List<String> subscriptionSkus, @NonNull List<String> consumableSkus) {
         return isSubscribedToAny(subscriptionSkus) || hasAnyConsumable(consumableSkus);
     }
 
@@ -240,7 +242,7 @@ public class StoreManager {
      * @param consumableSkus - SKUs to check purchase status
      * @return - true if purchased any provided SKUs, false otherwise
      */
-    public boolean hasAnyConsumable(@NonNull ArrayList<String> consumableSkus) {
+    public boolean hasAnyConsumable(@NonNull List<String> consumableSkus) {
         for (String sku : consumableSkus) {
             if (!consumableSkus.contains(sku)) {
                 throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
@@ -276,7 +278,7 @@ public class StoreManager {
      * @param subscriptionSkus - SKUs to check subscription status
      * @return - true if subscribed to any provided SKUs, false otherwise
      */
-    public boolean isSubscribedToAny(@NonNull ArrayList<String> subscriptionSkus) {
+    public boolean isSubscribedToAny(@NonNull List<String> subscriptionSkus) {
         for (String sku : subscriptionSkus) {
             if (!subscriptionSkus.contains(sku)) {
                 throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
