@@ -19,6 +19,7 @@ public class StoreManager {
 
     private static final StoreManager INSTANCE = new StoreManager();
 
+    private boolean debuggable;
     private String licenseKey;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> consumableSkus = new ArrayList<>();
@@ -38,6 +39,10 @@ public class StoreManager {
 
     public boolean isStoreLoaded() {
         return bp != null && bp.isInitialized();
+    }
+
+    public void setDebuggable(boolean debuggable) {
+        this.debuggable = debuggable;
     }
 
     public void setLicenseKey(String licenseKey) {
@@ -214,7 +219,11 @@ public class StoreManager {
      * managed set
      */
     public boolean hasAnySubOrConsumable(@NonNull List<String> subscriptionSkus, @NonNull List<String> consumableSkus) {
-        return isSubscribedToAny(subscriptionSkus) || hasAnyConsumable(consumableSkus);
+        if (debuggable) {
+            return true;
+        } else {
+            return isSubscribedToAny(subscriptionSkus) || hasAnyConsumable(consumableSkus);
+        }
     }
 
     /**
@@ -222,13 +231,9 @@ public class StoreManager {
      * @return - true if purchased provided SKU, false otherwise
      */
     public boolean hasConsumable(String sku) {
-        if (!consumableSkus.contains(sku)) {
-            throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-        } else {
-            ArrayList<String> skus = new ArrayList<>();
-            skus.add(sku);
-            return hasAnyConsumable(skus);
-        }
+        ArrayList<String> skus = new ArrayList<>();
+        skus.add(sku);
+        return hasAnyConsumable(skus);
     }
 
     /**
@@ -243,14 +248,18 @@ public class StoreManager {
      * @return - true if purchased any provided SKUs, false otherwise
      */
     public boolean hasAnyConsumable(@NonNull List<String> consumableSkus) {
-        for (String sku : consumableSkus) {
-            if (!consumableSkus.contains(sku)) {
-                throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-            } else if (bp.isPurchased(sku)) {
-                return true;
+        if (debuggable) {
+            return true;
+        } else {
+            for (String sku : consumableSkus) {
+                if (!consumableSkus.contains(sku)) {
+                    throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+                } else if (bp.isPurchased(sku)) {
+                    return true;
+                }
             }
+            return false;
         }
-        return false;
     }
 
     /**
@@ -258,13 +267,9 @@ public class StoreManager {
      * @return - true if subscribed to provided SKU, false otherwise
      */
     public boolean isSubscribedTo(@NonNull String sku) {
-        if (!subscriptionSkus.contains(sku)) {
-            throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-        } else {
-            ArrayList<String> skus = new ArrayList<>();
-            skus.add(sku);
-            return isSubscribedToAny(skus);
-        }
+        ArrayList<String> skus = new ArrayList<>();
+        skus.add(sku);
+        return isSubscribedToAny(skus);
     }
 
     /**
@@ -279,14 +284,18 @@ public class StoreManager {
      * @return - true if subscribed to any provided SKUs, false otherwise
      */
     public boolean isSubscribedToAny(@NonNull List<String> subscriptionSkus) {
-        for (String sku : subscriptionSkus) {
-            if (!subscriptionSkus.contains(sku)) {
-                throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-            } else if (bp.isSubscribed(sku)) {
-                return true;
+        if (debuggable) {
+            return true;
+        } else {
+            for (String sku : subscriptionSkus) {
+                if (!subscriptionSkus.contains(sku)) {
+                    throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+                } else if (bp.isSubscribed(sku)) {
+                    return true;
+                }
             }
+            return false;
         }
-        return false;
     }
 
     private void checkAndAcknowledgeTransactionDetails() {
