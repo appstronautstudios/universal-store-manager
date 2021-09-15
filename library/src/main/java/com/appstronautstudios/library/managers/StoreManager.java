@@ -3,6 +3,8 @@ package com.appstronautstudios.library.managers;
 import android.app.Activity;
 import android.content.Context;
 
+import androidx.annotation.NonNull;
+
 import com.android.billingclient.api.BillingClient;
 import com.android.billingclient.api.BillingResult;
 import com.android.billingclient.api.Purchase;
@@ -12,8 +14,6 @@ import com.appstronautstudios.library.utils.StoreEventListener;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import androidx.annotation.NonNull;
 
 public class StoreManager {
 
@@ -133,7 +133,7 @@ public class StoreManager {
                     @Override
                     public void onQuerySkuDetails(List<SkuDetails> skuDetails) {
                         if (listener != null) {
-                            listener.storeBillingInitialized();
+                            listener.storeBillingInitialized(true, "");
                         }
                     }
 
@@ -150,6 +150,10 @@ public class StoreManager {
                     public void onAcknowledgeSuccess(Purchase purchase) {
                     }
                 });
+            }
+        } else {
+            if (listener != null) {
+                listener.storeBillingInitialized(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
             }
         }
     }
@@ -176,15 +180,21 @@ public class StoreManager {
     }
 
     public void makeSubscription(String SKU, Activity context) {
-        bp.subscribe(context, SKU);
+        if (isStoreLoaded()) {
+            bp.subscribe(context, SKU);
+        }
     }
 
     public void makePurchase(String SKU, Activity context) {
-        bp.purchase(context, SKU);
+        if (isStoreLoaded()) {
+            bp.purchase(context, SKU);
+        }
     }
 
     public void consumePurchase(String SKU) {
-        bp.consumePurchase(SKU);
+        if (isStoreLoaded()) {
+            bp.consumePurchase(SKU);
+        }
     }
 
     /**
@@ -248,16 +258,20 @@ public class StoreManager {
      * @return - true if purchased any provided SKUs, false otherwise
      */
     public boolean hasAnyConsumable(@NonNull List<String> consumableSkus) {
-        if (debuggable) {
-            return true;
-        } else {
-            for (String sku : consumableSkus) {
-                if (!consumableSkus.contains(sku)) {
-                    throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-                } else if (bp.isPurchased(sku)) {
-                    return true;
+        if (isStoreLoaded()) {
+            if (debuggable) {
+                return true;
+            } else {
+                for (String sku : consumableSkus) {
+                    if (!consumableSkus.contains(sku)) {
+                        throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+                    } else if (bp.isPurchased(sku)) {
+                        return true;
+                    }
                 }
+                return false;
             }
+        } else {
             return false;
         }
     }
@@ -284,16 +298,20 @@ public class StoreManager {
      * @return - true if subscribed to any provided SKUs, false otherwise
      */
     public boolean isSubscribedToAny(@NonNull List<String> subscriptionSkus) {
-        if (debuggable) {
-            return true;
-        } else {
-            for (String sku : subscriptionSkus) {
-                if (!subscriptionSkus.contains(sku)) {
-                    throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-                } else if (bp.isSubscribed(sku)) {
-                    return true;
+        if (isStoreLoaded()) {
+            if (debuggable) {
+                return true;
+            } else {
+                for (String sku : subscriptionSkus) {
+                    if (!subscriptionSkus.contains(sku)) {
+                        throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+                    } else if (bp.isSubscribed(sku)) {
+                        return true;
+                    }
                 }
+                return false;
             }
+        } else {
             return false;
         }
     }

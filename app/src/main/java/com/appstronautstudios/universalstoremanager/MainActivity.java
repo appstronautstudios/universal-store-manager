@@ -1,12 +1,12 @@
 package com.appstronautstudios.universalstoremanager;
 
 import android.os.Bundle;
-import android.widget.Toast;
+import android.widget.TextView;
+
+import androidx.appcompat.app.AppCompatActivity;
 
 import com.appstronautstudios.library.managers.StoreManager;
 import com.appstronautstudios.library.utils.StoreEventListener;
-
-import androidx.appcompat.app.AppCompatActivity;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -15,24 +15,30 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        final TextView messageTV = findViewById(R.id.message);
+
         StoreManager.getInstance().setLicenseKey("abcdefg");
         StoreManager.getInstance().setManagedSkus(null, null);
-        StoreManager.getInstance().setupBillingProcessor(this);
         StoreManager.getInstance().setEventListener(new StoreEventListener() {
             @Override
-            public void storeBillingInitialized() {
-                Toast.makeText(MainActivity.this, "store billing initialized", Toast.LENGTH_SHORT).show();
+            public void storeBillingInitialized(boolean success, String message) {
+                if (success) {
+                    messageTV.setText("store billing initialized");
+                } else {
+                    messageTV.setText(message);
+                }
             }
 
             @Override
             public void storePurchaseComplete(String purchaseJson) {
-                Toast.makeText(MainActivity.this, "purchased: " + purchaseJson, Toast.LENGTH_SHORT).show();
+                messageTV.setText("purchased: " + purchaseJson);
             }
 
             @Override
             public void storePurchaseError(int errorCode) {
-                Toast.makeText(MainActivity.this, "failed to purchase: " + errorCode, Toast.LENGTH_SHORT).show();
+                messageTV.setText("failed to purchase: " + errorCode);
             }
         });
+        StoreManager.getInstance().setupBillingProcessor(this);
     }
 }

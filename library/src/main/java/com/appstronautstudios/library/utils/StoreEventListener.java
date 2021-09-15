@@ -2,7 +2,7 @@ package com.appstronautstudios.library.utils;
 
 
 public interface StoreEventListener {
-    void storeBillingInitialized();
+    void storeBillingInitialized(boolean success, String message);
 
     void storePurchaseComplete(String purchaseJson);
 
