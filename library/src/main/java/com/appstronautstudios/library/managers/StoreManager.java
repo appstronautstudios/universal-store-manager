@@ -5,11 +5,9 @@ import android.content.Context;
 
 import androidx.annotation.NonNull;
 
-import com.android.billingclient.api.BillingClient;
-import com.android.billingclient.api.BillingResult;
-import com.android.billingclient.api.Purchase;
-import com.android.billingclient.api.SkuDetails;
 import com.anjlab.android.iab.v3.BillingProcessor;
+import com.anjlab.android.iab.v3.SkuDetails;
+import com.anjlab.android.iab.v3.TransactionDetails;
 import com.appstronautstudios.library.utils.StoreEventListener;
 
 import java.util.ArrayList;
@@ -38,7 +36,7 @@ public class StoreManager {
     }
 
     public boolean isStoreLoaded() {
-        return bp != null && bp.isInitialized();
+        return bp != null;
     }
 
     public void setDebuggable(boolean debuggable) {
@@ -82,8 +80,8 @@ public class StoreManager {
             } else {
                 bp = new BillingProcessor(context, licenseKey, new BillingProcessor.IBillingHandler() {
                     @Override
-                    public void onBillingError(BillingResult result) {
-                        switch (result.getResponseCode()) {
+                    public void onBillingError(int responseCode, Throwable error) {
+                        switch (responseCode) {
                             case 1:
                                 // User pressed back or canceled a dialog
                                 break;
@@ -116,7 +114,7 @@ public class StoreManager {
                                 break;
                         }
                         if (listener != null) {
-                            listener.storePurchaseError(result.getResponseCode());
+                            listener.storePurchaseError(responseCode);
                         }
                     }
 
@@ -126,28 +124,23 @@ public class StoreManager {
                     }
 
                     @Override
-                    public void onProductPurchased(Purchase purchase) {
-                        handlePurchaseResult(purchase);
+                    public void onProductPurchased(@NonNull String productId, TransactionDetails details) {
+                        handlePurchaseResult(productId);
                     }
 
+                    // TODO
+                    /*
                     @Override
                     public void onQuerySkuDetails(List<SkuDetails> skuDetails) {
                         if (listener != null) {
                             listener.storeBillingInitialized(true, "");
                         }
                     }
+                     */
 
                     @Override
-                    public void onPurchaseHistoryRestored(List<String> products) {
+                    public void onPurchaseHistoryRestored() {
                         handleBillingInitialize();
-                    }
-
-                    @Override
-                    public void onConsumeSuccess(Purchase purchase) {
-                    }
-
-                    @Override
-                    public void onAcknowledgeSuccess(Purchase purchase) {
                     }
                 });
             }
@@ -160,21 +153,25 @@ public class StoreManager {
 
     private void handleBillingInitialize() {
         if (isStoreLoaded()) {
-            bp.getSkuDetailsAsync(subscriptionSkus, BillingClient.SkuType.SUBS);
-            bp.getSkuDetailsAsync(consumableSkus, BillingClient.SkuType.INAPP);
+            bp.loadOwnedPurchasesFromGoogle(); // apparently this is synchronous now
 
             // safety ACK all transactions
             checkAndAcknowledgeTransactionDetails();
+
+            // alert user to completed init
+            if (listener != null) {
+                listener.storeBillingInitialized(true, "");
+            }
         }
     }
 
-    private void handlePurchaseResult(Purchase purchase) {
+    private void handlePurchaseResult(String id) {
         if (isStoreLoaded()) {
             // safety ACK and toggle local prefs premium
             checkAndAcknowledgeTransactionDetails();
 
             if (listener != null) {
-                listener.storePurchaseComplete(purchase.getOriginalJson());
+                listener.storePurchaseComplete(id);
             }
         }
     }
@@ -317,20 +314,23 @@ public class StoreManager {
     }
 
     private void checkAndAcknowledgeTransactionDetails() {
+        // TODO
+        /*
         if (isStoreLoaded()) {
             for (String sku : subscriptionSkus) {
-                Purchase transaction = bp.getSubscriptionTransactionDetails(sku);
+                TransactionDetails transaction = bp.getSubscriptionTransactionDetails(sku);
                 if (transaction != null && !transaction.isAcknowledged()) {
                     bp.acknowledgeSubscription(transaction.getSku());
                 }
             }
             for (String sku : consumableSkus) {
-                Purchase transaction = bp.getPurchaseTransactionDetails(sku);
+                TransactionDetails transaction = bp.getPurchaseTransactionDetails(sku);
                 if (transaction != null && !transaction.isAcknowledged()) {
                     bp.acknowledgeManagedProduct(transaction.getSku());
                 }
             }
         }
+         */
     }
 
     /**
