@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 
 import com.anjlab.android.iab.v3.BillingProcessor;
 import com.anjlab.android.iab.v3.SkuDetails;
+import com.anjlab.android.iab.v3.SuccessFailListener;
 import com.anjlab.android.iab.v3.TransactionDetails;
 import com.appstronautstudios.library.utils.StoreEventListener;
 
@@ -143,7 +144,6 @@ public class StoreManager {
                         handleBillingInitialize();
                     }
                 });
-                bp.connect(context);
                 bp.initialize();
             }
         } else {
@@ -196,22 +196,40 @@ public class StoreManager {
         }
     }
 
-    /**
-     * @return - SkuDetails objects for all consumables and subscriptions being managed. Make sure
-     * setManagedSkus is called before setupBillingProcessor
-     */
-    public List<SkuDetails> getAllManagedSkuDetails() {
-        ArrayList<SkuDetails> skuDetails = new ArrayList<>();
+    public void getAllManagedSkuDetailsAsync(final SuccessFailListener listener) {
+        final ArrayList<SkuDetails> skuDetails = new ArrayList<>();
 
         if (isStoreLoaded()) {
-            for (String sku : subscriptionSkus) {
-                skuDetails.add(bp.getSubscriptionListingDetails(sku));
-            }
-            for (String sku : consumableSkus) {
-                skuDetails.add(bp.getPurchaseListingDetails(sku));
-            }
+            bp.getSubscriptionListingDetails(subscriptionSkus, new SuccessFailListener() {
+                @Override
+                public void success(Object object) {
+                    skuDetails.addAll((ArrayList<SkuDetails>) object);
+                    bp.getSubscriptionListingDetails(consumableSkus, new SuccessFailListener() {
+                        @Override
+                        public void success(Object object) {
+                            skuDetails.addAll((ArrayList<SkuDetails>) object);
+                            if (listener != null) {
+                                listener.success(skuDetails);
+                            }
+                        }
+
+                        @Override
+                        public void fail(Object object) {
+                            if (listener != null) {
+                                listener.fail(object);
+                            }
+                        }
+                    });
+                }
+
+                @Override
+                public void fail(Object object) {
+                    if (listener != null) {
+                        listener.fail(object);
+                    }
+                }
+            });
         }
-        return skuDetails;
     }
 
     /**
