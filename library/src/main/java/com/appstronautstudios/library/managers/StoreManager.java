@@ -36,7 +36,7 @@ public class StoreManager {
     }
 
     public boolean isStoreLoaded() {
-        return bp != null;
+        return bp != null && bp.isInitialized();
     }
 
     public void setDebuggable(boolean debuggable) {
@@ -143,6 +143,8 @@ public class StoreManager {
                         handleBillingInitialize();
                     }
                 });
+                bp.connect(context);
+                bp.initialize();
             }
         } else {
             if (listener != null) {
