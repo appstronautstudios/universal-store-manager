@@ -3,17 +3,15 @@ package com.appstronautstudios.library.managers;
 import android.app.Activity;
 import android.content.Context;
 
-import com.android.billingclient.api.BillingClient;
-import com.android.billingclient.api.BillingResult;
-import com.android.billingclient.api.Purchase;
-import com.android.billingclient.api.SkuDetails;
+import androidx.annotation.NonNull;
+
 import com.anjlab.android.iab.v3.BillingProcessor;
+import com.anjlab.android.iab.v3.SkuDetails;
+import com.anjlab.android.iab.v3.TransactionDetails;
 import com.appstronautstudios.library.utils.StoreEventListener;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import androidx.annotation.NonNull;
 
 public class StoreManager {
 
@@ -82,8 +80,8 @@ public class StoreManager {
             } else {
                 bp = new BillingProcessor(context, licenseKey, new BillingProcessor.IBillingHandler() {
                     @Override
-                    public void onBillingError(BillingResult result) {
-                        switch (result.getResponseCode()) {
+                    public void onBillingError(int responseCode, Throwable error) {
+                        switch (responseCode) {
                             case 1:
                                 // User pressed back or canceled a dialog
                                 break;
@@ -116,7 +114,7 @@ public class StoreManager {
                                 break;
                         }
                         if (listener != null) {
-                            listener.storePurchaseError(result.getResponseCode());
+                            listener.storePurchaseError(responseCode);
                         }
                     }
 
@@ -126,65 +124,76 @@ public class StoreManager {
                     }
 
                     @Override
-                    public void onProductPurchased(Purchase purchase) {
-                        handlePurchaseResult(purchase);
+                    public void onProductPurchased(@NonNull String productId, TransactionDetails details) {
+                        handlePurchaseResult(productId);
                     }
 
+                    // TODO
+                    /*
                     @Override
                     public void onQuerySkuDetails(List<SkuDetails> skuDetails) {
                         if (listener != null) {
-                            listener.storeBillingInitialized();
+                            listener.storeBillingInitialized(true, "");
                         }
                     }
+                     */
 
                     @Override
-                    public void onPurchaseHistoryRestored(List<String> products) {
+                    public void onPurchaseHistoryRestored() {
                         handleBillingInitialize();
                     }
-
-                    @Override
-                    public void onConsumeSuccess(Purchase purchase) {
-                    }
-
-                    @Override
-                    public void onAcknowledgeSuccess(Purchase purchase) {
-                    }
                 });
+                bp.connect(context);
+                bp.initialize();
+            }
+        } else {
+            if (listener != null) {
+                listener.storeBillingInitialized(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
             }
         }
     }
 
     private void handleBillingInitialize() {
         if (isStoreLoaded()) {
-            bp.getSkuDetailsAsync(subscriptionSkus, BillingClient.SkuType.SUBS);
-            bp.getSkuDetailsAsync(consumableSkus, BillingClient.SkuType.INAPP);
+            bp.loadOwnedPurchasesFromGoogle(); // apparently this is synchronous now
 
             // safety ACK all transactions
             checkAndAcknowledgeTransactionDetails();
+
+            // alert user to completed init
+            if (listener != null) {
+                listener.storeBillingInitialized(true, "");
+            }
         }
     }
 
-    private void handlePurchaseResult(Purchase purchase) {
+    private void handlePurchaseResult(String id) {
         if (isStoreLoaded()) {
             // safety ACK and toggle local prefs premium
             checkAndAcknowledgeTransactionDetails();
 
             if (listener != null) {
-                listener.storePurchaseComplete(purchase.getOriginalJson());
+                listener.storePurchaseComplete(id);
             }
         }
     }
 
     public void makeSubscription(String SKU, Activity context) {
-        bp.subscribe(context, SKU);
+        if (isStoreLoaded()) {
+            bp.subscribe(context, SKU);
+        }
     }
 
     public void makePurchase(String SKU, Activity context) {
-        bp.purchase(context, SKU);
+        if (isStoreLoaded()) {
+            bp.purchase(context, SKU);
+        }
     }
 
     public void consumePurchase(String SKU) {
-        bp.consumePurchase(SKU);
+        if (isStoreLoaded()) {
+            bp.consumePurchase(SKU);
+        }
     }
 
     /**
@@ -248,16 +257,20 @@ public class StoreManager {
      * @return - true if purchased any provided SKUs, false otherwise
      */
     public boolean hasAnyConsumable(@NonNull List<String> consumableSkus) {
-        if (debuggable) {
-            return true;
-        } else {
-            for (String sku : consumableSkus) {
-                if (!consumableSkus.contains(sku)) {
-                    throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-                } else if (bp.isPurchased(sku)) {
-                    return true;
+        if (isStoreLoaded()) {
+            if (debuggable) {
+                return true;
+            } else {
+                for (String sku : consumableSkus) {
+                    if (!consumableSkus.contains(sku)) {
+                        throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+                    } else if (bp.isPurchased(sku)) {
+                        return true;
+                    }
                 }
+                return false;
             }
+        } else {
             return false;
         }
     }
@@ -284,35 +297,42 @@ public class StoreManager {
      * @return - true if subscribed to any provided SKUs, false otherwise
      */
     public boolean isSubscribedToAny(@NonNull List<String> subscriptionSkus) {
-        if (debuggable) {
-            return true;
-        } else {
-            for (String sku : subscriptionSkus) {
-                if (!subscriptionSkus.contains(sku)) {
-                    throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-                } else if (bp.isSubscribed(sku)) {
-                    return true;
+        if (isStoreLoaded()) {
+            if (debuggable) {
+                return true;
+            } else {
+                for (String sku : subscriptionSkus) {
+                    if (!subscriptionSkus.contains(sku)) {
+                        throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
+                    } else if (bp.isSubscribed(sku)) {
+                        return true;
+                    }
                 }
+                return false;
             }
+        } else {
             return false;
         }
     }
 
     private void checkAndAcknowledgeTransactionDetails() {
+        // TODO
+        /*
         if (isStoreLoaded()) {
             for (String sku : subscriptionSkus) {
-                Purchase transaction = bp.getSubscriptionTransactionDetails(sku);
+                TransactionDetails transaction = bp.getSubscriptionTransactionDetails(sku);
                 if (transaction != null && !transaction.isAcknowledged()) {
                     bp.acknowledgeSubscription(transaction.getSku());
                 }
             }
             for (String sku : consumableSkus) {
-                Purchase transaction = bp.getPurchaseTransactionDetails(sku);
+                TransactionDetails transaction = bp.getPurchaseTransactionDetails(sku);
                 if (transaction != null && !transaction.isAcknowledged()) {
                     bp.acknowledgeManagedProduct(transaction.getSku());
                 }
             }
         }
+         */
     }
 
     /**
