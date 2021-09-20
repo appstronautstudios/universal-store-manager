@@ -2,6 +2,8 @@ package com.appstronautstudios.library.managers;
 
 import android.app.Activity;
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.annotation.NonNull;
 
@@ -204,29 +206,44 @@ public class StoreManager {
                 @Override
                 public void success(Object object) {
                     skuDetails.addAll((ArrayList<SkuDetails>) object);
-                    bp.getSubscriptionListingDetails(consumableSkus, new SuccessFailListener() {
+                    bp.getPurchaseListingDetails(consumableSkus, new SuccessFailListener() {
                         @Override
                         public void success(Object object) {
                             skuDetails.addAll((ArrayList<SkuDetails>) object);
-                            if (listener != null) {
-                                listener.success(skuDetails);
-                            }
+                            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (listener != null) {
+                                        listener.success(skuDetails);
+                                    }
+                                }
+                            });
                         }
 
                         @Override
-                        public void fail(Object object) {
-                            if (listener != null) {
-                                listener.fail(object);
-                            }
+                        public void fail(final Object object) {
+                            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (listener != null) {
+                                        listener.fail(object);
+                                    }
+                                }
+                            });
                         }
                     });
                 }
 
                 @Override
-                public void fail(Object object) {
-                    if (listener != null) {
-                        listener.fail(object);
-                    }
+                public void fail(final Object object) {
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (listener != null) {
+                                listener.fail(object);
+                            }
+                        }
+                    });
                 }
             });
         }
