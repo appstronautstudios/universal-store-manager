@@ -143,7 +143,6 @@ public class StoreManager {
                         handleBillingInitialize();
                     }
                 });
-                bp.connect(context);
                 bp.initialize();
             }
         } else {
