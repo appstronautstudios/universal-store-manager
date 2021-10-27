@@ -81,7 +81,7 @@ public class StoreManager {
                 // at risk. Manually call initialize like it succeeded again.
                 handleBillingInitialize();
             } else {
-                bp = new BillingProcessor(context, licenseKey, new BillingProcessor.IBillingHandler() {
+                bp = new BillingProcessor(context, licenseKey, new BillingProcessor.IBillingHandler() { // this does initialize on its own
                     @Override
                     public void onBillingError(int responseCode, Throwable error) {
                         switch (responseCode) {
@@ -146,7 +146,6 @@ public class StoreManager {
                         handleBillingInitialize();
                     }
                 });
-                bp.initialize();
             }
         } else {
             if (listener != null) {
