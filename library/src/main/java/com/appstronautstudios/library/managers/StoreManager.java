@@ -83,7 +83,7 @@ public class StoreManager {
             } else {
                 bp = new BillingProcessor(context, licenseKey, new BillingProcessor.IBillingHandler() { // this does initialize on its own
                     @Override
-                    public void onBillingError(int responseCode, Throwable error) {
+                    public void onBillingError(final int responseCode, Throwable error) {
                         switch (responseCode) {
                             case 1:
                                 // User pressed back or canceled a dialog
@@ -116,9 +116,14 @@ public class StoreManager {
                             default:
                                 break;
                         }
-                        if (listener != null) {
-                            listener.storePurchaseError(responseCode);
-                        }
+                        new Handler(Looper.getMainLooper()).post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (listener != null) {
+                                    listener.storePurchaseError(responseCode);
+                                }
+                            }
+                        });
                     }
 
                     @Override
@@ -131,16 +136,6 @@ public class StoreManager {
                         handlePurchaseResult(productId);
                     }
 
-                    // TODO
-                    /*
-                    @Override
-                    public void onQuerySkuDetails(List<SkuDetails> skuDetails) {
-                        if (listener != null) {
-                            listener.storeBillingInitialized(true, "");
-                        }
-                    }
-                     */
-
                     @Override
                     public void onPurchaseHistoryRestored() {
                         handleBillingInitialize();
@@ -148,9 +143,14 @@ public class StoreManager {
                 });
             }
         } else {
-            if (listener != null) {
-                listener.storeBillingInitialized(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
-            }
+            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                @Override
+                public void run() {
+                    if (listener != null) {
+                        listener.storeBillingInitialized(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
+                    }
+                }
+            });
         }
     }
 
@@ -162,20 +162,31 @@ public class StoreManager {
             checkAndAcknowledgeTransactionDetails();
 
             // alert user to completed init
-            if (listener != null) {
-                listener.storeBillingInitialized(true, "");
-            }
+            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                @Override
+                public void run() {
+                    if (listener != null) {
+                        listener.storeBillingInitialized(true, "");
+                    }
+                }
+            });
         }
     }
 
-    private void handlePurchaseResult(String id) {
+    private void handlePurchaseResult(final String id) {
         if (isStoreLoaded()) {
             // safety ACK and toggle local prefs premium
             checkAndAcknowledgeTransactionDetails();
 
-            if (listener != null) {
-                listener.storePurchaseComplete(id);
-            }
+            // alert user to completed purhcase
+            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                @Override
+                public void run() {
+                    if (listener != null) {
+                        listener.storePurchaseComplete(id);
+                    }
+                }
+            });
         }
     }
 
