@@ -74,6 +74,48 @@ public class StoreManager {
         listener = null;
     }
 
+    /**
+     * utility function to force callback on main thread
+     */
+    private void storeBillingInitializedMain(boolean success, String message) {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                if (listener != null) {
+                    listener.storeBillingInitialized(success, message);
+                }
+            }
+        });
+    }
+
+    /**
+     * utility function to force callback on main thread
+     */
+    private void storePurchaseCompleteMain(String json) {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                if (listener != null) {
+                    listener.storePurchaseComplete(json);
+                }
+            }
+        });
+    }
+
+    /**
+     * utility function to force callback on main thread
+     */
+    private void storePurchaseErrorMain(int code) {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                if (listener != null) {
+                    listener.storePurchaseError(code);
+                }
+            }
+        });
+    }
+
     public void setupBillingProcessor(final Context context) {
         if (BillingProcessor.isIabServiceAvailable(context)) {
             if (isStoreLoaded()) {
@@ -116,9 +158,9 @@ public class StoreManager {
                             default:
                                 break;
                         }
-                        if (listener != null) {
-                            listener.storePurchaseError(responseCode);
-                        }
+
+                        // alert user to store error
+                        storePurchaseErrorMain(responseCode);
                     }
 
                     @Override
@@ -135,9 +177,7 @@ public class StoreManager {
                     /*
                     @Override
                     public void onQuerySkuDetails(List<SkuDetails> skuDetails) {
-                        if (listener != null) {
-                            listener.storeBillingInitialized(true, "");
-                        }
+                        storeBillingInitializedMain(true, "");
                     }
                      */
 
@@ -148,9 +188,8 @@ public class StoreManager {
                 });
             }
         } else {
-            if (listener != null) {
-                listener.storeBillingInitialized(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
-            }
+            // alert user to failed init
+            storeBillingInitializedMain(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
         }
     }
 
@@ -162,9 +201,7 @@ public class StoreManager {
             checkAndAcknowledgeTransactionDetails();
 
             // alert user to completed init
-            if (listener != null) {
-                listener.storeBillingInitialized(true, "");
-            }
+            storeBillingInitializedMain(true, "");
         }
     }
 
@@ -173,9 +210,7 @@ public class StoreManager {
             // safety ACK and toggle local prefs premium
             checkAndAcknowledgeTransactionDetails();
 
-            if (listener != null) {
-                listener.storePurchaseComplete(id);
-            }
+            storePurchaseCompleteMain(id);
         }
     }
 
@@ -197,7 +232,7 @@ public class StoreManager {
         }
     }
 
-    public void getAllManagedSkuDetailsAsync(final SuccessFailListener listener) {
+    public void getAllManagedSkuDetailsAsync(final SuccessFailListener successFailListener) {
         final ArrayList<SkuDetails> skuDetails = new ArrayList<>();
 
         if (isStoreLoaded()) {
@@ -212,8 +247,8 @@ public class StoreManager {
                             new Handler(Looper.getMainLooper()).post(new Runnable() {
                                 @Override
                                 public void run() {
-                                    if (listener != null) {
-                                        listener.success(skuDetails);
+                                    if (successFailListener != null) {
+                                        successFailListener.success(skuDetails);
                                     }
                                 }
                             });
@@ -224,8 +259,8 @@ public class StoreManager {
                             new Handler(Looper.getMainLooper()).post(new Runnable() {
                                 @Override
                                 public void run() {
-                                    if (listener != null) {
-                                        listener.fail(object);
+                                    if (successFailListener != null) {
+                                        successFailListener.fail(object);
                                     }
                                 }
                             });
@@ -238,8 +273,8 @@ public class StoreManager {
                     new Handler(Looper.getMainLooper()).post(new Runnable() {
                         @Override
                         public void run() {
-                            if (listener != null) {
-                                listener.fail(object);
+                            if (successFailListener != null) {
+                                successFailListener.fail(object);
                             }
                         }
                     });
