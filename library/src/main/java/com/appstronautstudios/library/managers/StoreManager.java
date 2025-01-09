@@ -24,7 +24,7 @@ public class StoreManager {
     private String licenseKey;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> consumableSkus = new ArrayList<>();
-    private StoreEventListener listener;
+    private ArrayList<StoreEventListener> listeners = new ArrayList<>();
 
     private BillingProcessor bp;
 
@@ -66,12 +66,12 @@ public class StoreManager {
         }
     }
 
-    public void setEventListener(StoreEventListener l) {
-        listener = l;
+    public void addEventListener(StoreEventListener l) {
+        listeners.add(l);
     }
 
-    public void removeListener() {
-        listener = null;
+    public void removeEventListener(StoreEventListener l) {
+        listeners.remove(l);
     }
 
     /**
@@ -81,8 +81,10 @@ public class StoreManager {
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
-                if (listener != null) {
-                    listener.storeBillingInitialized(success, message);
+                if (listeners.size() > 0) {
+                    for(StoreEventListener l : listeners ) {
+                        l.storeBillingInitialized(success, message);
+                    }
                 }
             }
         });
@@ -95,8 +97,10 @@ public class StoreManager {
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
-                if (listener != null) {
-                    listener.storePurchaseComplete(json);
+                if (listeners.size() > 0) {
+                    for(StoreEventListener l : listeners ) {
+                        l.storePurchaseComplete(json);
+                    }
                 }
             }
         });
@@ -109,8 +113,11 @@ public class StoreManager {
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
-                if (listener != null) {
-                    listener.storePurchaseError(code);
+
+                if (listeners.size() > 0) {
+                    for(StoreEventListener l : listeners ) {
+                        l.storePurchaseError(code);
+                    }
                 }
             }
         });
