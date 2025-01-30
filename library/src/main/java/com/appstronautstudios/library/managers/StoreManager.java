@@ -7,14 +7,22 @@ import android.os.Looper;
 
 import androidx.annotation.NonNull;
 
-import com.anjlab.android.iab.v3.BillingProcessor;
-import com.anjlab.android.iab.v3.SkuDetails;
-import com.anjlab.android.iab.v3.SuccessFailListener;
-import com.anjlab.android.iab.v3.TransactionDetails;
+import com.android.billingclient.api.AcknowledgePurchaseParams;
+import com.android.billingclient.api.BillingClient;
+import com.android.billingclient.api.BillingClientStateListener;
+import com.android.billingclient.api.BillingFlowParams;
+import com.android.billingclient.api.BillingResult;
+import com.android.billingclient.api.ProductDetails;
+import com.android.billingclient.api.Purchase;
+import com.android.billingclient.api.PurchasesUpdatedListener;
+import com.android.billingclient.api.QueryProductDetailsParams;
 import com.appstronautstudios.library.utils.StoreEventListener;
+import com.appstronautstudios.library.utils.SuccessFailListener;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class StoreManager {
 
@@ -23,10 +31,14 @@ public class StoreManager {
     private boolean debuggable;
     private String licenseKey;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
-    private ArrayList<String> consumableSkus = new ArrayList<>();
+    private ArrayList<String> inAppSkus = new ArrayList<>();
+    private final Map<String, Purchase> purchaseCache = new HashMap<>();
+    private List<ProductDetails> subscriptionProducts;
+    private List<ProductDetails> inAppProducts;
     private ArrayList<StoreEventListener> listeners = new ArrayList<>();
 
-    private BillingProcessor bp;
+    private PurchasesUpdatedListener purchasesUpdatedListener;
+    private BillingClient billingClient;
 
     private StoreManager() {
         if (INSTANCE != null) {
@@ -39,7 +51,7 @@ public class StoreManager {
     }
 
     public boolean isStoreLoaded() {
-        return bp != null && bp.isInitialized();
+        return billingClient != null && billingClient.isReady();
     }
 
     public void setDebuggable(boolean debuggable) {
@@ -50,6 +62,7 @@ public class StoreManager {
         this.licenseKey = licenseKey;
     }
 
+    // TODO how are we going to manage SKUs
     public void setManagedSkus(List<String> subscriptionSkus, List<String> consumableSkus) {
         if (subscriptionSkus != null) {
             this.subscriptionSkus.clear();
@@ -59,10 +72,10 @@ public class StoreManager {
         }
 
         if (consumableSkus != null) {
-            this.consumableSkus.clear();
-            this.consumableSkus.addAll(consumableSkus);
+            this.inAppSkus.clear();
+            this.inAppSkus.addAll(consumableSkus);
         } else {
-            this.consumableSkus = new ArrayList<>();
+            this.inAppSkus = new ArrayList<>();
         }
     }
 
@@ -77,14 +90,11 @@ public class StoreManager {
     /**
      * utility function to force callback on main thread
      */
-    private void storeBillingInitializedMain(boolean success, String message) {
-        new Handler(Looper.getMainLooper()).post(new Runnable() {
-            @Override
-            public void run() {
-                if (listeners.size() > 0) {
-                    for(StoreEventListener l : listeners ) {
-                        l.storeBillingInitialized(success, message);
-                    }
+    private void storeBillingInitializedMain(boolean success, Object result) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (!listeners.isEmpty()) {
+                for (StoreEventListener l : listeners) {
+                    l.storeBillingInitialized(success, result);
                 }
             }
         });
@@ -94,13 +104,10 @@ public class StoreManager {
      * utility function to force callback on main thread
      */
     private void storePurchaseCompleteMain(String json) {
-        new Handler(Looper.getMainLooper()).post(new Runnable() {
-            @Override
-            public void run() {
-                if (listeners.size() > 0) {
-                    for(StoreEventListener l : listeners ) {
-                        l.storePurchaseComplete(json);
-                    }
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (!listeners.isEmpty()) {
+                for (StoreEventListener l : listeners) {
+                    l.storePurchaseComplete(json);
                 }
             }
         });
@@ -115,7 +122,7 @@ public class StoreManager {
             public void run() {
 
                 if (listeners.size() > 0) {
-                    for(StoreEventListener l : listeners ) {
+                    for (StoreEventListener l : listeners) {
                         l.storePurchaseError(code);
                     }
                 }
@@ -123,122 +130,254 @@ public class StoreManager {
         });
     }
 
-    public void setupBillingProcessor(final Context context) {
-        if (BillingProcessor.isIabServiceAvailable(context)) {
-            if (isStoreLoaded()) {
-                // DANGER created already! If you dump the old one the callbacks attached to it are
-                // at risk. Manually call initialize like it succeeded again.
-                handleBillingInitialize();
-            } else {
-                bp = new BillingProcessor(context, licenseKey, new BillingProcessor.IBillingHandler() { // this does initialize on its own
-                    @Override
-                    public void onBillingError(int responseCode, Throwable error) {
-                        switch (responseCode) {
-                            case 1:
-                                // User pressed back or canceled a dialog
-                                break;
-                            case 2:
-                                // Network connection is down
-                                break;
-                            case 3:
-                                bp = null;
-                                // Billing API version is not supported for the type requested
-                                break;
-                            case 4:
-                                // Requested product is not available for purchase
-                                break;
-                            case 5:
-                                // Invalid arguments provided to the API. This error can also indicate that
-                                // the application was not correctly signed or properly set up for In-app Billing
-                                // in Google Play, or does not have the necessary permissions in its manifest
-                                break;
-                            case 6:
-                                bp = null;
-                                // Fatal error during the API action
-                                break;
-                            case 7:
-                                // Failure to purchase since item is already owned
-                                break;
-                            case 8:
-                                // Failure to consume since item is not owned
-                                break;
-                            default:
-                                break;
-                        }
-
-                        // alert user to store error
-                        storePurchaseErrorMain(responseCode);
-                    }
-
-                    @Override
-                    public void onBillingInitialized() {
-                        handleBillingInitialize();
-                    }
-
-                    @Override
-                    public void onProductPurchased(@NonNull String productId, TransactionDetails details) {
-                        handlePurchaseResult(productId);
-                    }
-
-                    // TODO
-                    /*
-                    @Override
-                    public void onQuerySkuDetails(List<SkuDetails> skuDetails) {
-                        storeBillingInitializedMain(true, "");
-                    }
-                     */
-
-                    @Override
-                    public void onPurchaseHistoryRestored() {
-                        handleBillingInitialize();
-                    }
-                });
+    public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps) {
+        // initialize listener
+        purchasesUpdatedListener = (billingResult, purchases) -> {
+            // To be implemented in a later section.
+        };
+        // store the sub and inApp ids
+        subscriptionSkus = subs;
+        inAppSkus = inApps;
+        // initialize client and start connection
+        billingClient = BillingClient.newBuilder(context)
+                .setListener(purchasesUpdatedListener)
+                .build();
+        billingClient.startConnection(new BillingClientStateListener() {
+            @Override
+            public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
+                if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                    // The BillingClient is ready. You can query purchases here.
+                    handleBillingInitialize();
+                } else {
+                    // TODO retry mechanic
+                }
             }
-        } else {
-            // alert user to failed init
-            storeBillingInitializedMain(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
-        }
+
+            @Override
+            public void onBillingServiceDisconnected() {
+                // Try to restart the connection on the next request to
+                // Google Play by calling the startConnection() method.
+
+                // TODO retry to establish disconnected
+            }
+        });
+
+
+//        if (BillingProcessor.isIabServiceAvailable(context)) {
+//            if (isStoreLoaded()) {
+//                // DANGER created already! If you dump the old one the callbacks attached to it are
+//                // at risk. Manually call initialize like it succeeded again.
+//                handleBillingInitialize();
+//            } else {
+//                bp = new BillingProcessor(context, licenseKey, new BillingProcessor.IBillingHandler() { // this does initialize on its own
+//                    @Override
+//                    public void onBillingError(int responseCode, Throwable error) {
+//                        switch (responseCode) {
+//                            case 1:
+//                                // User pressed back or canceled a dialog
+//                                break;
+//                            case 2:
+//                                // Network connection is down
+//                                break;
+//                            case 3:
+//                                bp = null;
+//                                // Billing API version is not supported for the type requested
+//                                break;
+//                            case 4:
+//                                // Requested product is not available for purchase
+//                                break;
+//                            case 5:
+//                                // Invalid arguments provided to the API. This error can also indicate that
+//                                // the application was not correctly signed or properly set up for In-app Billing
+//                                // in Google Play, or does not have the necessary permissions in its manifest
+//                                break;
+//                            case 6:
+//                                bp = null;
+//                                // Fatal error during the API action
+//                                break;
+//                            case 7:
+//                                // Failure to purchase since item is already owned
+//                                break;
+//                            case 8:
+//                                // Failure to consume since item is not owned
+//                                break;
+//                            default:
+//                                break;
+//                        }
+//
+//                        // alert user to store error
+//                        storePurchaseErrorMain(responseCode);
+//                    }
+//
+//                    @Override
+//                    public void onBillingInitialized() {
+//                        handleBillingInitialize();
+//                    }
+//
+//                    @Override
+//                    public void onProductPurchased(@NonNull String productId, TransactionDetails details) {
+//                        handlePurchaseResult(productId);
+//                    }
+//
+//                    // TODO
+//                    /*
+//                    @Override
+//                    public void onQuerySkuDetails(List<SkuDetails> skuDetails) {
+//                        storeBillingInitializedMain(true, "");
+//                    }
+//                     */
+//
+//                    @Override
+//                    public void onPurchaseHistoryRestored() {
+//                        handleBillingInitialize();
+//                    }
+//                });
+//            }
+//        } else {
+//            // alert user to failed init
+//            storeBillingInitializedMain(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
+//        }
     }
 
     private void handleBillingInitialize() {
         if (isStoreLoaded()) {
-            bp.loadOwnedPurchasesFromGoogle(); // apparently this is synchronous now
+            queryInApp(inAppSkus, new SuccessFailListener() {
+                @Override
+                public void success(Object object) {
+                    querySubs(subscriptionSkus, new SuccessFailListener() {
+                        @Override
+                        public void success(Object object) {
+                            // alert user to completed init
+                            storeBillingInitializedMain(true, object);
+                        }
 
-            // safety ACK all transactions
-            checkAndAcknowledgeTransactionDetails();
+                        @Override
+                        public void failure(Object object) {
+                            storeBillingInitializedMain(false, object);
+                        }
+                    });
+                }
 
-            // alert user to completed init
-            storeBillingInitializedMain(true, "");
+                @Override
+                public void failure(Object object) {
+                    storeBillingInitializedMain(false, object);
+                }
+            });
         }
     }
 
-    private void handlePurchaseResult(String id) {
-        if (isStoreLoaded()) {
-            // safety ACK and toggle local prefs premium
-            checkAndAcknowledgeTransactionDetails();
+    public void purchase(Activity activity, String productId, boolean isSubscription) {
+        QueryProductDetailsParams params = QueryProductDetailsParams.newBuilder()
+                .setProductList(List.of(QueryProductDetailsParams.Product.newBuilder()
+                        .setProductId(productId)
+                        .setProductType(isSubscription ? BillingClient.ProductType.SUBS : BillingClient.ProductType.INAPP)
+                        .build()))
+                .build();
 
-            storePurchaseCompleteMain(id);
+        billingClient.queryProductDetailsAsync(params, (billingResult, productDetailsList) -> {
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && productDetailsList != null && !productDetailsList.isEmpty()) {
+                BillingFlowParams flowParams = BillingFlowParams.newBuilder()
+                        .setProductDetailsParamsList(List.of(BillingFlowParams.ProductDetailsParams.newBuilder()
+                                .setProductDetails(productDetailsList.get(0))
+                                .setOfferToken(isSubscription ? productDetailsList.get(0).getSubscriptionOfferDetails().get(0).getOfferToken() : null)
+                                .build()))
+                        .build();
+                billingClient.launchBillingFlow(activity, flowParams);
+            }
+        });
+    }
+
+    private void onPurchasesUpdated(BillingResult billingResult, List<Purchase> purchases) {
+        if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
+            for (Purchase purchase : purchases) {
+                purchaseCache.put(purchase.getProducts().get(0), purchase);
+                acknowledgePurchase(purchase);
+                storePurchaseCompleteMain(null);
+            }
+        } else if (billingResult.getResponseCode() != BillingClient.BillingResponseCode.OK) {
+            storePurchaseErrorMain(billingResult.getResponseCode());
         }
     }
 
-    public void makeSubscription(String SKU, Activity context) {
-        if (isStoreLoaded()) {
-            bp.subscribe(context, SKU);
+    private void acknowledgePurchase(Purchase purchase) {
+        if (!purchase.isAcknowledged() && purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
+            AcknowledgePurchaseParams params = AcknowledgePurchaseParams.newBuilder()
+                    .setPurchaseToken(purchase.getPurchaseToken())
+                    .build();
+            billingClient.acknowledgePurchase(params, billingResult -> {
+                if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                    // Successfully acknowledged purchase
+                }
+            });
         }
     }
 
-    public void makePurchase(String SKU, Activity context) {
-        if (isStoreLoaded()) {
-            bp.purchase(context, SKU);
-        }
-    }
-
+    // TODO put this back we need it for testing
     public void consumePurchase(String SKU) {
         if (isStoreLoaded()) {
             bp.consumePurchase(SKU);
         }
     }
 
+    private void queryInApp(List<String> productIds, SuccessFailListener listener) {
+        ArrayList<QueryProductDetailsParams.Product> products = new ArrayList<>();
+        for (String productId : productIds) {
+            products.add(QueryProductDetailsParams.Product.newBuilder()
+                    .setProductId(productId)
+                    .setProductType(BillingClient.ProductType.INAPP)
+                    .build());
+        }
+
+        QueryProductDetailsParams queryProductDetailsParams =
+                QueryProductDetailsParams.newBuilder()
+                        .setProductList(products)
+                        .build();
+
+        billingClient.queryProductDetailsAsync(
+                queryProductDetailsParams,
+                (billingResult, productDetailsList) -> {
+                    if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                        // TODO update cache with product return
+                        inAppProducts = productDetailsList;
+                        if (listener != null) listener.success(productDetailsList);
+                    } else {
+                        // TODO what should we do if products fail to fetch?
+                        if (listener != null) listener.failure(billingResult);
+                    }
+                }
+        );
+    }
+
+    private void querySubs(List<String> productIds, SuccessFailListener listener) {
+        ArrayList<QueryProductDetailsParams.Product> products = new ArrayList<>();
+        for (String productId : productIds) {
+            products.add(QueryProductDetailsParams.Product.newBuilder()
+                    .setProductId(productId)
+                    .setProductType(BillingClient.ProductType.SUBS)
+                    .build());
+        }
+
+        QueryProductDetailsParams queryProductDetailsParams =
+                QueryProductDetailsParams.newBuilder()
+                        .setProductList(products)
+                        .build();
+
+        billingClient.queryProductDetailsAsync(
+                queryProductDetailsParams,
+                (billingResult, productDetailsList) -> {
+                    if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                        // TODO update cache with product return
+                        subscriptionProducts = productDetailsList;
+                        if (listener != null) listener.success(productDetailsList);
+                    } else {
+                        // TODO what should we do if products fail to fetch?
+                        if (listener != null) listener.failure(billingResult);
+                    }
+                }
+        );
+    }
+
+    /*
     public void getAllManagedSkuDetailsAsync(final SuccessFailListener successFailListener) {
         final ArrayList<SkuDetails> skuDetails = new ArrayList<>();
 
@@ -289,13 +428,14 @@ public class StoreManager {
             });
         }
     }
+     */
 
     /**
      * @return - true if subscribed to any of the managed subscription SKUs or if owns any of the
      * managed consumable SKUs. False otherwise
      */
     public boolean hasAnySubOrConsumable() {
-        return hasAnySubOrConsumable(subscriptionSkus, consumableSkus);
+        return hasAnySubOrConsumable(subscriptionSkus, inAppSkus);
     }
 
     /**
@@ -325,7 +465,7 @@ public class StoreManager {
      * @return - true if purchased any managed consumable, false otherwise
      */
     public boolean hasAnyConsumable() {
-        return hasAnyConsumable(consumableSkus);
+        return hasAnyConsumable(inAppSkus);
     }
 
     /**
@@ -362,63 +502,19 @@ public class StoreManager {
     }
 
     /**
-     * @return - true if subscribed to any SKUs in the managed set, false otherwise
-     */
-    public boolean isSubscribedToAny() {
-        return isSubscribedToAny(subscriptionSkus);
-    }
-
-    /**
-     * @param subscriptionSkus - SKUs to check subscription status
      * @return - true if subscribed to any provided SKUs, false otherwise
      */
-    public boolean isSubscribedToAny(@NonNull List<String> subscriptionSkus) {
+    public boolean isSubscribedToAny() {
         if (isStoreLoaded()) {
             if (debuggable) {
                 return true;
             } else {
-                for (String sku : subscriptionSkus) {
-                    if (!subscriptionSkus.contains(sku)) {
-                        throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-                    } else if (bp.isSubscribed(sku)) {
-                        return true;
-                    }
-                }
-                return false;
+               for (ProductDetails details : subscriptionProducts) {
+                   details.
+               }
             }
         } else {
             return false;
-        }
-    }
-
-    private void checkAndAcknowledgeTransactionDetails() {
-        // TODO
-        /*
-        if (isStoreLoaded()) {
-            for (String sku : subscriptionSkus) {
-                TransactionDetails transaction = bp.getSubscriptionTransactionDetails(sku);
-                if (transaction != null && !transaction.isAcknowledged()) {
-                    bp.acknowledgeSubscription(transaction.getSku());
-                }
-            }
-            for (String sku : consumableSkus) {
-                TransactionDetails transaction = bp.getPurchaseTransactionDetails(sku);
-                if (transaction != null && !transaction.isAcknowledged()) {
-                    bp.acknowledgeManagedProduct(transaction.getSku());
-                }
-            }
-        }
-         */
-    }
-
-    /**
-     * load fresh subscription data and update subscription end dates. Also ack purchase and subs
-     * as necessary
-     */
-    public void checkSubscriptionStatus() {
-        if (isStoreLoaded()) {
-            bp.loadOwnedPurchasesFromGoogle();
-            checkAndAcknowledgeTransactionDetails();
         }
     }
 }
