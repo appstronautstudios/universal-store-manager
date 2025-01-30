@@ -1,4 +1,4 @@
-package com.appstronautstudios.universalstoremanager;
+package com.appstronautstudios.universalstoremanagerdemo;
 
 import android.os.Bundle;
 import android.widget.TextView;
@@ -19,7 +19,7 @@ public class MainActivity extends AppCompatActivity {
 
         StoreManager.getInstance().setLicenseKey("abcdefg");
         StoreManager.getInstance().setManagedSkus(null, null);
-        StoreManager.getInstance().setEventListener(new StoreEventListener() {
+        StoreManager.getInstance().addEventListener(new StoreEventListener() {
             @Override
             public void storeBillingInitialized(boolean success, String message) {
                 if (success) {
