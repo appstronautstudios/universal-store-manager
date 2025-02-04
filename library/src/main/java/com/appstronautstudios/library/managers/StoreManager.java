@@ -12,7 +12,6 @@ import com.android.billingclient.api.BillingClient;
 import com.android.billingclient.api.BillingClientStateListener;
 import com.android.billingclient.api.BillingFlowParams;
 import com.android.billingclient.api.BillingResult;
-import com.android.billingclient.api.ProductDetails;
 import com.android.billingclient.api.Purchase;
 import com.android.billingclient.api.PurchasesUpdatedListener;
 import com.android.billingclient.api.QueryProductDetailsParams;
@@ -32,9 +31,7 @@ public class StoreManager {
     private String licenseKey;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> inAppSkus = new ArrayList<>();
-    private final Map<String, Purchase> purchaseCache = new HashMap<>();
-    private List<ProductDetails> subscriptionProducts;
-    private List<ProductDetails> inAppProducts;
+    private final Map<String, Purchase> purchaseCache = new HashMap<>(); // MAP OF PURCHASE STATES
     private ArrayList<StoreEventListener> listeners = new ArrayList<>();
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
@@ -120,8 +117,7 @@ public class StoreManager {
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
-
-                if (listeners.size() > 0) {
+                if (!listeners.isEmpty()) {
                     for (StoreEventListener l : listeners) {
                         l.storePurchaseError(code);
                     }
@@ -139,9 +135,10 @@ public class StoreManager {
         subscriptionSkus = subs;
         inAppSkus = inApps;
         // initialize client and start connection
-        billingClient = BillingClient.newBuilder(context)
-                .setListener(purchasesUpdatedListener)
-                .build();
+        if (billingClient == null) {
+            billingClient = BillingClient.newBuilder(context).setListener(purchasesUpdatedListener).build();
+        }
+        // TODO should we only start connection if one isn't already started
         billingClient.startConnection(new BillingClientStateListener() {
             @Override
             public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
@@ -241,21 +238,10 @@ public class StoreManager {
 
     private void handleBillingInitialize() {
         if (isStoreLoaded()) {
-            queryInApp(inAppSkus, new SuccessFailListener() {
+            updatePurchaseCache(new SuccessFailListener() {
                 @Override
                 public void success(Object object) {
-                    querySubs(subscriptionSkus, new SuccessFailListener() {
-                        @Override
-                        public void success(Object object) {
-                            // alert user to completed init
-                            storeBillingInitializedMain(true, object);
-                        }
-
-                        @Override
-                        public void failure(Object object) {
-                            storeBillingInitializedMain(false, object);
-                        }
-                    });
+                    storeBillingInitializedMain(true, object);
                 }
 
                 @Override
@@ -290,13 +276,63 @@ public class StoreManager {
     private void onPurchasesUpdated(BillingResult billingResult, List<Purchase> purchases) {
         if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
             for (Purchase purchase : purchases) {
-                purchaseCache.put(purchase.getProducts().get(0), purchase);
+                getPurchaseCache().put(purchase.getProducts().get(0), purchase);
                 acknowledgePurchase(purchase);
                 storePurchaseCompleteMain(null);
             }
         } else if (billingResult.getResponseCode() != BillingClient.BillingResponseCode.OK) {
             storePurchaseErrorMain(billingResult.getResponseCode());
         }
+    }
+
+    private Map<String, Purchase> getPurchaseCache() {
+        return purchaseCache;
+    }
+
+    private void updatePurchaseCache(SuccessFailListener listener) {
+        queryProductStates(BillingClient.ProductType.INAPP, new SuccessFailListener() {
+            @Override
+            public void success(Object object) {
+                queryProductStates(BillingClient.ProductType.SUBS, new SuccessFailListener() {
+                    @Override
+                    public void success(Object object) {
+                        if (listener != null) listener.success(object);
+                    }
+
+                    @Override
+                    public void failure(Object object) {
+                        if (listener != null) listener.failure(object);
+                    }
+                });
+            }
+
+            @Override
+            public void failure(Object object) {
+                if (listener != null) listener.failure(object);
+            }
+        });
+    }
+
+    // TODO this will fetch and cache the states of specified product ids
+    // TODO use the new system instead of queryPurchasesAsync
+    private void queryProductStates(String skuType, SuccessFailListener listener) {
+        billingClient.queryPurchasesAsync(skuType, (billingResult, purchases) -> {
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                for (Purchase purchase : purchases) {
+                    for (String sku : purchase.getProducts()) {
+                        if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
+                            purchaseCache.put(sku, purchase);
+                        } else {
+                            purchaseCache.remove(sku);
+                        }
+                    }
+                }
+
+                if (listener != null) listener.success(purchaseCache);
+            } else {
+                if (listener != null) listener.failure(billingResult);
+            }
+        });
     }
 
     private void acknowledgePurchase(Purchase purchase) {
@@ -319,12 +355,20 @@ public class StoreManager {
         }
     }
 
-    private void queryInApp(List<String> productIds, SuccessFailListener listener) {
+    public void getSubDetails(SuccessFailListener listener) {
+        getProductDetails(subscriptionSkus, BillingClient.ProductType.SUBS, listener);
+    }
+
+    public void getInAppDetails(SuccessFailListener listener) {
+        getProductDetails(inAppSkus, BillingClient.ProductType.INAPP, listener);
+    }
+
+    private void getProductDetails(ArrayList<String> productIds, String productType, SuccessFailListener listener) {
         ArrayList<QueryProductDetailsParams.Product> products = new ArrayList<>();
         for (String productId : productIds) {
             products.add(QueryProductDetailsParams.Product.newBuilder()
                     .setProductId(productId)
-                    .setProductType(BillingClient.ProductType.INAPP)
+                    .setProductType(productType)
                     .build());
         }
 
@@ -337,98 +381,13 @@ public class StoreManager {
                 queryProductDetailsParams,
                 (billingResult, productDetailsList) -> {
                     if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        // TODO update cache with product return
-                        inAppProducts = productDetailsList;
                         if (listener != null) listener.success(productDetailsList);
                     } else {
-                        // TODO what should we do if products fail to fetch?
                         if (listener != null) listener.failure(billingResult);
                     }
                 }
         );
     }
-
-    private void querySubs(List<String> productIds, SuccessFailListener listener) {
-        ArrayList<QueryProductDetailsParams.Product> products = new ArrayList<>();
-        for (String productId : productIds) {
-            products.add(QueryProductDetailsParams.Product.newBuilder()
-                    .setProductId(productId)
-                    .setProductType(BillingClient.ProductType.SUBS)
-                    .build());
-        }
-
-        QueryProductDetailsParams queryProductDetailsParams =
-                QueryProductDetailsParams.newBuilder()
-                        .setProductList(products)
-                        .build();
-
-        billingClient.queryProductDetailsAsync(
-                queryProductDetailsParams,
-                (billingResult, productDetailsList) -> {
-                    if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        // TODO update cache with product return
-                        subscriptionProducts = productDetailsList;
-                        if (listener != null) listener.success(productDetailsList);
-                    } else {
-                        // TODO what should we do if products fail to fetch?
-                        if (listener != null) listener.failure(billingResult);
-                    }
-                }
-        );
-    }
-
-    /*
-    public void getAllManagedSkuDetailsAsync(final SuccessFailListener successFailListener) {
-        final ArrayList<SkuDetails> skuDetails = new ArrayList<>();
-
-        if (isStoreLoaded()) {
-            bp.getSubscriptionListingDetails(subscriptionSkus, new SuccessFailListener() {
-                @Override
-                public void success(Object object) {
-                    skuDetails.addAll((ArrayList<SkuDetails>) object);
-                    bp.getPurchaseListingDetails(consumableSkus, new SuccessFailListener() {
-                        @Override
-                        public void success(Object object) {
-                            skuDetails.addAll((ArrayList<SkuDetails>) object);
-                            new Handler(Looper.getMainLooper()).post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    if (successFailListener != null) {
-                                        successFailListener.success(skuDetails);
-                                    }
-                                }
-                            });
-                        }
-
-                        @Override
-                        public void fail(final Object object) {
-                            new Handler(Looper.getMainLooper()).post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    if (successFailListener != null) {
-                                        successFailListener.fail(object);
-                                    }
-                                }
-                            });
-                        }
-                    });
-                }
-
-                @Override
-                public void fail(final Object object) {
-                    new Handler(Looper.getMainLooper()).post(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (successFailListener != null) {
-                                successFailListener.fail(object);
-                            }
-                        }
-                    });
-                }
-            });
-        }
-    }
-     */
 
     /**
      * @return - true if subscribed to any of the managed subscription SKUs or if owns any of the
@@ -478,9 +437,7 @@ public class StoreManager {
                 return true;
             } else {
                 for (String sku : consumableSkus) {
-                    if (!consumableSkus.contains(sku)) {
-                        throw new RuntimeException(sku + " is not managed. Make sure you call setManagedSkus() before setupBillingProcessor() and try again");
-                    } else if (bp.isPurchased(sku)) {
+                    if (purchaseCache.containsKey(sku)) {
                         return true;
                     }
                 }
@@ -502,16 +459,26 @@ public class StoreManager {
     }
 
     /**
-     * @return - true if subscribed to any provided SKUs, false otherwise
+     * @return - true if subscribed to any managed SKUs, false otherwise
      */
     public boolean isSubscribedToAny() {
+        return isSubscribedToAny(subscriptionSkus);
+    }
+
+    /**
+     * @return - true if subscribed to any provided SKUs, false otherwise
+     */
+    public boolean isSubscribedToAny(@NonNull List<String> skus) {
         if (isStoreLoaded()) {
             if (debuggable) {
                 return true;
             } else {
-               for (ProductDetails details : subscriptionProducts) {
-                   details.
-               }
+                for (String sku : skus) {
+                    if (purchaseCache.containsKey(sku)) {
+                        return true;
+                    }
+                }
+                return false;
             }
         } else {
             return false;
