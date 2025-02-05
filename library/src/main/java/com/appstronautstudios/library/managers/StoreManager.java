@@ -13,6 +13,7 @@ import com.android.billingclient.api.BillingClientStateListener;
 import com.android.billingclient.api.BillingFlowParams;
 import com.android.billingclient.api.BillingResult;
 import com.android.billingclient.api.ConsumeParams;
+import com.android.billingclient.api.PendingPurchasesParams;
 import com.android.billingclient.api.Purchase;
 import com.android.billingclient.api.PurchasesUpdatedListener;
 import com.android.billingclient.api.QueryProductDetailsParams;
@@ -26,6 +27,9 @@ import java.util.List;
 import java.util.Map;
 
 public class StoreManager {
+
+    public static final int INIT_FAIL_UNKNOWN = -99;
+    public static final int PURCHASE_FAIL_UNKNOWN = -199;
 
     private static final StoreManager INSTANCE = new StoreManager();
 
@@ -89,11 +93,11 @@ public class StoreManager {
     /**
      * utility function to force callback on main thread
      */
-    private void storeBillingInitializedMain(boolean success, BillingResult result) {
+    private void storeBillingInitializedMain(boolean success, int code) {
         new Handler(Looper.getMainLooper()).post(() -> {
             if (!listeners.isEmpty()) {
                 for (StoreEventListener l : listeners) {
-                    l.storeBillingInitialized(success, result.getDebugMessage());
+                    l.storeBillingInitialized(success, code);
                 }
             }
         });
@@ -102,11 +106,11 @@ public class StoreManager {
     /**
      * utility function to force callback on main thread
      */
-    private void storePurchaseCompleteMain(String json) {
+    private void storePurchaseCompleteMain(String sku) {
         new Handler(Looper.getMainLooper()).post(() -> {
             if (!listeners.isEmpty()) {
                 for (StoreEventListener l : listeners) {
-                    l.storePurchaseComplete(json);
+                    l.storePurchaseComplete(sku);
                 }
             }
         });
@@ -136,9 +140,9 @@ public class StoreManager {
                     handlePurchase(purchase); // Process purchase
                 }
             } else if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.USER_CANCELED) {
-                storeBillingInitializedMain(false, billingResult);
+                // TODO what to do if user cancels purchase
             } else {
-                storeBillingInitializedMain(false, billingResult);
+                // TODO what do to do if unspecified error
             }
         };
         // store the sub and inApp ids
@@ -146,9 +150,16 @@ public class StoreManager {
         inAppSkus = inApps;
         // initialize client and start connection
         if (billingClient == null) {
-            billingClient = BillingClient.newBuilder(context).setListener(purchasesUpdatedListener).build();
+            PendingPurchasesParams params = PendingPurchasesParams.newBuilder()
+                    .enableOneTimeProducts()
+                    .build();
+            billingClient = BillingClient.newBuilder(context)
+                    .enablePendingPurchases(params)
+                    .setListener(purchasesUpdatedListener)
+                    .build();
         }
         // TODO should we only start connection if one isn't already started
+        // TODO this should retry twice if initial connection fails before informing the user
         billingClient.startConnection(new BillingClientStateListener() {
             @Override
             public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
@@ -175,12 +186,16 @@ public class StoreManager {
             updatePurchaseCache(new SuccessFailListener() {
                 @Override
                 public void success(Object object) {
-                    storeBillingInitializedMain(true, null);
+                    storeBillingInitializedMain(true, 0);
                 }
 
                 @Override
                 public void failure(Object object) {
-                    storeBillingInitializedMain(false, null);
+                    if (object instanceof BillingResult) {
+                        storeBillingInitializedMain(false, ((BillingResult) object).getResponseCode());
+                    } else {
+                        storeBillingInitializedMain(false, INIT_FAIL_UNKNOWN);
+                    }
                 }
             });
         }
@@ -216,19 +231,23 @@ public class StoreManager {
                 purchaseCache.put(productId, purchase);
             }
 
-            if (!purchase.isAcknowledged()) {
-                AcknowledgePurchaseParams acknowledgeParams = AcknowledgePurchaseParams.newBuilder()
-                        .setPurchaseToken(purchase.getPurchaseToken())
-                        .build();
+            acknowledgePurchase(purchase, new SuccessFailListener() {
+                @Override
+                public void success(Object object) {
+                    storePurchaseCompleteMain(null);
+                }
 
-                billingClient.acknowledgePurchase(acknowledgeParams, billingResult -> {
-                    if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        storePurchaseCompleteMain(null);
+                @Override
+                public void failure(Object object) {
+                    if (object instanceof BillingResult) {
+                        storePurchaseErrorMain(((BillingResult) object).getResponseCode());
                     } else {
-                        storePurchaseErrorMain(billingResult.getResponseCode());
+                        storePurchaseErrorMain(PURCHASE_FAIL_UNKNOWN);
                     }
-                });
-            }
+                }
+            });
+        } else if (purchase.getPurchaseState() == Purchase.PurchaseState.PENDING) {
+            // TODO ✅ Notify user that payment is pending (e.g., show a dialog or UI message)
         }
     }
 
@@ -251,17 +270,7 @@ public class StoreManager {
         queryProductStates(BillingClient.ProductType.INAPP, new SuccessFailListener() {
             @Override
             public void success(Object object) {
-                queryProductStates(BillingClient.ProductType.SUBS, new SuccessFailListener() {
-                    @Override
-                    public void success(Object object) {
-                        if (listener != null) listener.success(object);
-                    }
-
-                    @Override
-                    public void failure(Object object) {
-                        if (listener != null) listener.failure(object);
-                    }
-                });
+                queryProductStates(BillingClient.ProductType.SUBS, listener);
             }
 
             @Override

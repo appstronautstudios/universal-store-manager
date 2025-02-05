@@ -21,17 +21,17 @@ public class MainActivity extends AppCompatActivity {
         StoreManager.getInstance().setManagedSkus(null, null);
         StoreManager.getInstance().addEventListener(new StoreEventListener() {
             @Override
-            public void storeBillingInitialized(boolean success, String message) {
+            public void storeBillingInitialized(boolean success, int code) {
                 if (success) {
                     messageTV.setText("store billing initialized");
                 } else {
-                    messageTV.setText(message);
+                    messageTV.setText("store billing failed to initialize. Error code: " + code);
                 }
             }
 
             @Override
-            public void storePurchaseComplete(String purchaseJson) {
-                messageTV.setText("purchased: " + purchaseJson);
+            public void storePurchaseComplete(String sku) {
+                messageTV.setText("purchased: " + sku);
             }
 
             @Override
