@@ -35,6 +35,11 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
+            public void storePurchasePending(String sku) {
+
+            }
+
+            @Override
             public void storePurchaseError(int errorCode) {
                 messageTV.setText("failed to purchase: " + errorCode);
             }

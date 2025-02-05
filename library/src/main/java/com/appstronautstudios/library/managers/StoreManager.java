@@ -65,7 +65,6 @@ public class StoreManager {
         this.licenseKey = licenseKey;
     }
 
-    // TODO how are we going to manage SKUs
     public void setManagedSkus(List<String> subscriptionSkus, List<String> consumableSkus) {
         if (subscriptionSkus != null) {
             this.subscriptionSkus.clear();
@@ -119,6 +118,19 @@ public class StoreManager {
     /**
      * utility function to force callback on main thread
      */
+    private void storePurchasePendingMain(String sku) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (!listeners.isEmpty()) {
+                for (StoreEventListener l : listeners) {
+                    l.storePurchasePending(sku);
+                }
+            }
+        });
+    }
+
+    /**
+     * utility function to force callback on main thread
+     */
     private void storePurchaseErrorMain(int code) {
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
@@ -135,19 +147,16 @@ public class StoreManager {
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps) {
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
-            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
+            if(purchases != null) {
                 for (Purchase purchase : purchases) {
-                    handlePurchase(purchase); // Process purchase
+                    handlePurchase(purchase, billingResult.getResponseCode()); // Process purchase
                 }
-            } else if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.USER_CANCELED) {
-                // TODO what to do if user cancels purchase
-            } else {
-                // TODO what do to do if unspecified error
             }
         };
         // store the sub and inApp ids
         subscriptionSkus = subs;
         inAppSkus = inApps;
+
         // initialize client and start connection
         if (billingClient == null) {
             PendingPurchasesParams params = PendingPurchasesParams.newBuilder()
@@ -157,28 +166,36 @@ public class StoreManager {
                     .enablePendingPurchases(params)
                     .setListener(purchasesUpdatedListener)
                     .build();
+            connectBillingClient(2);
         }
-        // TODO should we only start connection if one isn't already started
-        // TODO this should retry twice if initial connection fails before informing the user
-        billingClient.startConnection(new BillingClientStateListener() {
-            @Override
-            public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
-                if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                    // The BillingClient is ready. You can query purchases here.
-                    handleBillingInitialize();
-                } else {
-                    // TODO retry mechanic
+    }
+
+    private void connectBillingClient(int retryCounter) {
+        if(billingClient.getConnectionState() != BillingClient.ConnectionState.CONNECTED && billingClient.getConnectionState() != BillingClient.ConnectionState.CONNECTING) {
+            billingClient.startConnection(new BillingClientStateListener() {
+                @Override
+                public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
+                    if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                        // The BillingClient is ready. You can query purchases here.
+                        handleBillingInitialize();
+                    } else {
+                        if(retryCounter > 0) {
+                            connectBillingClient(retryCounter-1);
+                        } else {
+                            storeBillingInitializedMain(false, billingResult.getResponseCode());
+                        }
+                    }
                 }
-            }
 
-            @Override
-            public void onBillingServiceDisconnected() {
-                // Try to restart the connection on the next request to
-                // Google Play by calling the startConnection() method.
+                @Override
+                public void onBillingServiceDisconnected() {
+                    // Try to restart the connection on the next request to
+                    // Google Play by calling the startConnection() method.
+                    connectBillingClient(0);
 
-                // TODO retry to establish disconnected
-            }
-        });
+                }
+            });
+        }
     }
 
     private void handleBillingInitialize() {
@@ -219,35 +236,47 @@ public class StoreManager {
                         .build();
                 billingClient.launchBillingFlow(activity, flowParams);
             } else {
-                // TODO what do we do here?
+                storePurchaseErrorMain(billingResult.getResponseCode());
             }
         });
     }
 
-    private void handlePurchase(Purchase purchase) {
-        if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
-            // Add purchase to cache
-            for (String productId : purchase.getProducts()) {
-                purchaseCache.put(productId, purchase);
-            }
-
-            acknowledgePurchase(purchase, new SuccessFailListener() {
-                @Override
-                public void success(Object object) {
-                    storePurchaseCompleteMain(null);
+    private void handlePurchase(Purchase purchase, int responseCode) {
+        if(responseCode == BillingClient.BillingResponseCode.OK) {
+            if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
+                // Add purchase to cache
+                for (String productId : purchase.getProducts()) {
+                    purchaseCache.put(productId, purchase);
                 }
 
-                @Override
-                public void failure(Object object) {
-                    if (object instanceof BillingResult) {
-                        storePurchaseErrorMain(((BillingResult) object).getResponseCode());
-                    } else {
-                        storePurchaseErrorMain(PURCHASE_FAIL_UNKNOWN);
+                acknowledgePurchase(purchase, new SuccessFailListener() {
+                    @Override
+                    public void success(Object object) {
+                        storePurchaseCompleteMain(null);
                     }
+
+                    @Override
+                    public void failure(Object object) {
+                        if (object instanceof BillingResult) {
+                            storePurchaseErrorMain(((BillingResult) object).getResponseCode());
+                        } else {
+                            storePurchaseErrorMain(PURCHASE_FAIL_UNKNOWN);
+                        }
+                    }
+                });
+            } else if (purchase.getPurchaseState() == Purchase.PurchaseState.PENDING) {
+                storePurchasePendingMain(null);
+            }
+        } else if(responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
+            if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
+                // Add purchase to cache
+                for (String productId : purchase.getProducts()) {
+                    purchaseCache.put(productId, purchase);
                 }
-            });
-        } else if (purchase.getPurchaseState() == Purchase.PurchaseState.PENDING) {
-            // TODO ✅ Notify user that payment is pending (e.g., show a dialog or UI message)
+                storePurchaseCompleteMain(null);
+            }
+        } else {
+            storePurchaseErrorMain(responseCode);
         }
     }
 

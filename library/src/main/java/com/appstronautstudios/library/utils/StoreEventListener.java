@@ -5,5 +5,7 @@ public interface StoreEventListener {
 
     void storePurchaseComplete(String sku); // id of completed purchase
 
+    void storePurchasePending(String sku);
+
     void storePurchaseError(int errorCode);
 }
