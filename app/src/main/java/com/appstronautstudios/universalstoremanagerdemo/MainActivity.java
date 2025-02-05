@@ -39,6 +39,6 @@ public class MainActivity extends AppCompatActivity {
                 messageTV.setText("failed to purchase: " + errorCode);
             }
         });
-        StoreManager.getInstance().setupBillingProcessor(this);
+        StoreManager.getInstance().setupBillingProcessor(this, null, null);
     }
 }

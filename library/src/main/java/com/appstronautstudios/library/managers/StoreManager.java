@@ -12,9 +12,11 @@ import com.android.billingclient.api.BillingClient;
 import com.android.billingclient.api.BillingClientStateListener;
 import com.android.billingclient.api.BillingFlowParams;
 import com.android.billingclient.api.BillingResult;
+import com.android.billingclient.api.ConsumeParams;
 import com.android.billingclient.api.Purchase;
 import com.android.billingclient.api.PurchasesUpdatedListener;
 import com.android.billingclient.api.QueryProductDetailsParams;
+import com.android.billingclient.api.QueryPurchasesParams;
 import com.appstronautstudios.library.utils.StoreEventListener;
 import com.appstronautstudios.library.utils.SuccessFailListener;
 
@@ -87,11 +89,11 @@ public class StoreManager {
     /**
      * utility function to force callback on main thread
      */
-    private void storeBillingInitializedMain(boolean success, Object result) {
+    private void storeBillingInitializedMain(boolean success, BillingResult result) {
         new Handler(Looper.getMainLooper()).post(() -> {
             if (!listeners.isEmpty()) {
                 for (StoreEventListener l : listeners) {
-                    l.storeBillingInitialized(success, result);
+                    l.storeBillingInitialized(success, result.getDebugMessage());
                 }
             }
         });
@@ -129,7 +131,15 @@ public class StoreManager {
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps) {
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
-            // To be implemented in a later section.
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
+                for (Purchase purchase : purchases) {
+                    handlePurchase(purchase); // Process purchase
+                }
+            } else if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.USER_CANCELED) {
+                storeBillingInitializedMain(false, billingResult);
+            } else {
+                storeBillingInitializedMain(false, billingResult);
+            }
         };
         // store the sub and inApp ids
         subscriptionSkus = subs;
@@ -158,82 +168,6 @@ public class StoreManager {
                 // TODO retry to establish disconnected
             }
         });
-
-
-//        if (BillingProcessor.isIabServiceAvailable(context)) {
-//            if (isStoreLoaded()) {
-//                // DANGER created already! If you dump the old one the callbacks attached to it are
-//                // at risk. Manually call initialize like it succeeded again.
-//                handleBillingInitialize();
-//            } else {
-//                bp = new BillingProcessor(context, licenseKey, new BillingProcessor.IBillingHandler() { // this does initialize on its own
-//                    @Override
-//                    public void onBillingError(int responseCode, Throwable error) {
-//                        switch (responseCode) {
-//                            case 1:
-//                                // User pressed back or canceled a dialog
-//                                break;
-//                            case 2:
-//                                // Network connection is down
-//                                break;
-//                            case 3:
-//                                bp = null;
-//                                // Billing API version is not supported for the type requested
-//                                break;
-//                            case 4:
-//                                // Requested product is not available for purchase
-//                                break;
-//                            case 5:
-//                                // Invalid arguments provided to the API. This error can also indicate that
-//                                // the application was not correctly signed or properly set up for In-app Billing
-//                                // in Google Play, or does not have the necessary permissions in its manifest
-//                                break;
-//                            case 6:
-//                                bp = null;
-//                                // Fatal error during the API action
-//                                break;
-//                            case 7:
-//                                // Failure to purchase since item is already owned
-//                                break;
-//                            case 8:
-//                                // Failure to consume since item is not owned
-//                                break;
-//                            default:
-//                                break;
-//                        }
-//
-//                        // alert user to store error
-//                        storePurchaseErrorMain(responseCode);
-//                    }
-//
-//                    @Override
-//                    public void onBillingInitialized() {
-//                        handleBillingInitialize();
-//                    }
-//
-//                    @Override
-//                    public void onProductPurchased(@NonNull String productId, TransactionDetails details) {
-//                        handlePurchaseResult(productId);
-//                    }
-//
-//                    // TODO
-//                    /*
-//                    @Override
-//                    public void onQuerySkuDetails(List<SkuDetails> skuDetails) {
-//                        storeBillingInitializedMain(true, "");
-//                    }
-//                     */
-//
-//                    @Override
-//                    public void onPurchaseHistoryRestored() {
-//                        handleBillingInitialize();
-//                    }
-//                });
-//            }
-//        } else {
-//            // alert user to failed init
-//            storeBillingInitializedMain(false, "In app billing not supported on this device. Make sure you have Google Play Service installed and are signed into the Play Store.");
-//        }
     }
 
     private void handleBillingInitialize() {
@@ -241,12 +175,12 @@ public class StoreManager {
             updatePurchaseCache(new SuccessFailListener() {
                 @Override
                 public void success(Object object) {
-                    storeBillingInitializedMain(true, object);
+                    storeBillingInitializedMain(true, null);
                 }
 
                 @Override
                 public void failure(Object object) {
-                    storeBillingInitializedMain(false, object);
+                    storeBillingInitializedMain(false, null);
                 }
             });
         }
@@ -269,24 +203,48 @@ public class StoreManager {
                                 .build()))
                         .build();
                 billingClient.launchBillingFlow(activity, flowParams);
+            } else {
+                // TODO what do we do here?
             }
         });
     }
 
-    private void onPurchasesUpdated(BillingResult billingResult, List<Purchase> purchases) {
-        if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && purchases != null) {
-            for (Purchase purchase : purchases) {
-                getPurchaseCache().put(purchase.getProducts().get(0), purchase);
-                acknowledgePurchase(purchase);
-                storePurchaseCompleteMain(null);
+    private void handlePurchase(Purchase purchase) {
+        if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
+            // Add purchase to cache
+            for (String productId : purchase.getProducts()) {
+                purchaseCache.put(productId, purchase);
             }
-        } else if (billingResult.getResponseCode() != BillingClient.BillingResponseCode.OK) {
-            storePurchaseErrorMain(billingResult.getResponseCode());
+
+            if (!purchase.isAcknowledged()) {
+                AcknowledgePurchaseParams acknowledgeParams = AcknowledgePurchaseParams.newBuilder()
+                        .setPurchaseToken(purchase.getPurchaseToken())
+                        .build();
+
+                billingClient.acknowledgePurchase(acknowledgeParams, billingResult -> {
+                    if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                        storePurchaseCompleteMain(null);
+                    } else {
+                        storePurchaseErrorMain(billingResult.getResponseCode());
+                    }
+                });
+            }
         }
     }
 
-    private Map<String, Purchase> getPurchaseCache() {
-        return purchaseCache;
+    private void acknowledgePurchase(Purchase purchase, SuccessFailListener listener) {
+        if (!purchase.isAcknowledged() && purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
+            AcknowledgePurchaseParams params = AcknowledgePurchaseParams.newBuilder()
+                    .setPurchaseToken(purchase.getPurchaseToken())
+                    .build();
+            billingClient.acknowledgePurchase(params, billingResult -> {
+                if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                    if (listener != null) listener.success(null); // Success callback
+                } else {
+                    if (listener != null) listener.failure(billingResult); // Failure callback
+                }
+            });
+        }
     }
 
     private void updatePurchaseCache(SuccessFailListener listener) {
@@ -313,17 +271,25 @@ public class StoreManager {
         });
     }
 
-    // TODO this will fetch and cache the states of specified product ids
-    // TODO use the new system instead of queryPurchasesAsync
+    /**
+     * Query product type and update cache as needed
+     *
+     * @param skuType  - BillingClient.ProductType to query
+     * @param listener - callback listener
+     */
     private void queryProductStates(String skuType, SuccessFailListener listener) {
-        billingClient.queryPurchasesAsync(skuType, (billingResult, purchases) -> {
+        QueryPurchasesParams params = QueryPurchasesParams.newBuilder()
+                .setProductType(skuType)
+                .build();
+
+        billingClient.queryPurchasesAsync(params, (billingResult, purchases) -> {
             if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
                 for (Purchase purchase : purchases) {
-                    for (String sku : purchase.getProducts()) {
+                    for (String productId : purchase.getProducts()) {
                         if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
-                            purchaseCache.put(sku, purchase);
+                            purchaseCache.put(productId, purchase);
                         } else {
-                            purchaseCache.remove(sku);
+                            purchaseCache.remove(productId);
                         }
                     }
                 }
@@ -335,24 +301,18 @@ public class StoreManager {
         });
     }
 
-    private void acknowledgePurchase(Purchase purchase) {
-        if (!purchase.isAcknowledged() && purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
-            AcknowledgePurchaseParams params = AcknowledgePurchaseParams.newBuilder()
-                    .setPurchaseToken(purchase.getPurchaseToken())
-                    .build();
-            billingClient.acknowledgePurchase(params, billingResult -> {
-                if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                    // Successfully acknowledged purchase
-                }
-            });
-        }
-    }
+    public void consumePurchase(Purchase purchase, SuccessFailListener listener) {
+        ConsumeParams consumeParams = ConsumeParams.newBuilder()
+                .setPurchaseToken(purchase.getPurchaseToken())
+                .build();
 
-    // TODO put this back we need it for testing
-    public void consumePurchase(String SKU) {
-        if (isStoreLoaded()) {
-            bp.consumePurchase(SKU);
-        }
+        billingClient.consumeAsync(consumeParams, (billingResult, purchaseToken) -> {
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                if (listener != null) listener.success(null);
+            } else {
+                if (listener != null) listener.failure(billingResult);
+            }
+        });
     }
 
     public void getSubDetails(SuccessFailListener listener) {
