@@ -1,4 +1,4 @@
-package com.appstronautstudios.library.utils;
+package com.appstronautstudios.universalstoremanager.utils;
 
 public interface StoreEventListener {
     void storeBillingInitialized(boolean success, int code); // error code on failure

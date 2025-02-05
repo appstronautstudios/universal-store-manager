@@ -1,6 +1,10 @@
-apply plugin: 'com.android.library'
+plugins {
+    id 'com.android.library'
+    id 'maven-publish'
+}
 
 android {
+    namespace 'com.appstronautstudios.universalstoremanager'
     compileSdkVersion 33
     defaultConfig {
         minSdkVersion 23
@@ -13,7 +17,30 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-    namespace 'com.appstronautstudios.universalstoremanager'
+
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+                groupId = 'com.github.appstronautstudios'
+                artifactId = 'universalstoremanager'
+                version = '0.4.1'
+            }
+        }
+    }
 }
 
 dependencies {

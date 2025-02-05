@@ -5,8 +5,8 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.appstronautstudios.library.managers.StoreManager;
-import com.appstronautstudios.library.utils.StoreEventListener;
+import com.appstronautstudios.universalstoremanager.managers.StoreManager;
+import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
 
 public class MainActivity extends AppCompatActivity {
 

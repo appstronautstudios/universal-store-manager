@@ -1,4 +1,4 @@
-package com.appstronautstudios.library.managers;
+package com.appstronautstudios.universalstoremanager.managers;
 
 import android.app.Activity;
 import android.content.Context;
@@ -18,8 +18,8 @@ import com.android.billingclient.api.Purchase;
 import com.android.billingclient.api.PurchasesUpdatedListener;
 import com.android.billingclient.api.QueryProductDetailsParams;
 import com.android.billingclient.api.QueryPurchasesParams;
-import com.appstronautstudios.library.utils.StoreEventListener;
-import com.appstronautstudios.library.utils.SuccessFailListener;
+import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
+import com.appstronautstudios.universalstoremanager.utils.SuccessFailListener;
 
 import java.util.ArrayList;
 import java.util.HashMap;
