@@ -14,6 +14,7 @@ import com.android.billingclient.api.BillingFlowParams;
 import com.android.billingclient.api.BillingResult;
 import com.android.billingclient.api.ConsumeParams;
 import com.android.billingclient.api.PendingPurchasesParams;
+import com.android.billingclient.api.ProductDetails;
 import com.android.billingclient.api.Purchase;
 import com.android.billingclient.api.PurchasesUpdatedListener;
 import com.android.billingclient.api.QueryProductDetailsParams;
@@ -34,7 +35,6 @@ public class StoreManager {
     private static final StoreManager INSTANCE = new StoreManager();
 
     private boolean debuggable;
-    private String licenseKey;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> inAppSkus = new ArrayList<>();
     private final Map<String, Purchase> purchaseCache = new HashMap<>(); // MAP OF PURCHASE STATES
@@ -59,10 +59,6 @@ public class StoreManager {
 
     public void setDebuggable(boolean debuggable) {
         this.debuggable = debuggable;
-    }
-
-    public void setLicenseKey(String licenseKey) {
-        this.licenseKey = licenseKey;
     }
 
     public void setManagedSkus(List<String> subscriptionSkus, List<String> consumableSkus) {
@@ -147,7 +143,7 @@ public class StoreManager {
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps) {
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
-            if(purchases != null) {
+            if (purchases != null) {
                 for (Purchase purchase : purchases) {
                     handlePurchase(purchase, billingResult.getResponseCode()); // Process purchase
                 }
@@ -166,12 +162,22 @@ public class StoreManager {
                     .enablePendingPurchases(params)
                     .setListener(purchasesUpdatedListener)
                     .build();
-            connectBillingClient(2);
         }
+
+        // make sure that we're connected (this will internally check)
+        connectBillingClient(2);
     }
 
     private void connectBillingClient(int retryCounter) {
-        if(billingClient.getConnectionState() != BillingClient.ConnectionState.CONNECTED && billingClient.getConnectionState() != BillingClient.ConnectionState.CONNECTING) {
+        int connectedState = billingClient.getConnectionState();
+        if (connectedState == BillingClient.ConnectionState.CONNECTED) {
+            // already connected. Update cache and inform user
+            handleBillingInitialize();
+        } else if (connectedState == BillingClient.ConnectionState.CONNECTING) {
+            // respect that whatever process starting the connection process will eventually
+            // complete and launch the necessary callback. Do nothing
+        } else {
+            // connection closed or disconnected. Restart
             billingClient.startConnection(new BillingClientStateListener() {
                 @Override
                 public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
@@ -179,8 +185,8 @@ public class StoreManager {
                         // The BillingClient is ready. You can query purchases here.
                         handleBillingInitialize();
                     } else {
-                        if(retryCounter > 0) {
-                            connectBillingClient(retryCounter-1);
+                        if (retryCounter > 0) {
+                            connectBillingClient(retryCounter - 1);
                         } else {
                             storeBillingInitializedMain(false, billingResult.getResponseCode());
                         }
@@ -192,7 +198,6 @@ public class StoreManager {
                     // Try to restart the connection on the next request to
                     // Google Play by calling the startConnection() method.
                     connectBillingClient(0);
-
                 }
             });
         }
@@ -242,7 +247,7 @@ public class StoreManager {
     }
 
     private void handlePurchase(Purchase purchase, int responseCode) {
-        if(responseCode == BillingClient.BillingResponseCode.OK) {
+        if (responseCode == BillingClient.BillingResponseCode.OK) {
             if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
                 // Add purchase to cache
                 for (String productId : purchase.getProducts()) {
@@ -267,7 +272,7 @@ public class StoreManager {
             } else if (purchase.getPurchaseState() == Purchase.PurchaseState.PENDING) {
                 storePurchasePendingMain(null);
             }
-        } else if(responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
+        } else if (responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
             if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
                 // Add purchase to cache
                 for (String productId : purchase.getProducts()) {
@@ -349,6 +354,41 @@ public class StoreManager {
                 if (listener != null) listener.success(null);
             } else {
                 if (listener != null) listener.failure(billingResult);
+            }
+        });
+    }
+
+    public void getAllProductDetails(SuccessFailListener listener) {
+        getProductDetails(subscriptionSkus, BillingClient.ProductType.SUBS, new SuccessFailListener() {
+            @Override
+            public void success(Object object1) {
+                getProductDetails(inAppSkus, BillingClient.ProductType.INAPP, new SuccessFailListener() {
+                    @Override
+                    public void success(Object object2) {
+                        ArrayList<ProductDetails> allProductDetails = new ArrayList<>();
+                        if (object1 instanceof List<?> rawList) {
+                            if (!rawList.isEmpty() && rawList.get(0) instanceof ProductDetails) {
+                                allProductDetails.addAll((List<ProductDetails>) object1);
+                            }
+                        }
+                        if (object2 instanceof List<?> rawList) {
+                            if (!rawList.isEmpty() && rawList.get(0) instanceof ProductDetails) {
+                                allProductDetails.addAll((List<ProductDetails>) object2);
+                            }
+                        }
+                        if (listener != null) listener.success(allProductDetails);
+                    }
+
+                    @Override
+                    public void failure(Object object) {
+                        if (listener != null) listener.failure(object);
+                    }
+                });
+            }
+
+            @Override
+            public void failure(Object object) {
+                if (listener != null) listener.failure(object);
             }
         });
     }
