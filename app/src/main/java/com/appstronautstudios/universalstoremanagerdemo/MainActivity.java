@@ -16,7 +16,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         final TextView messageTV = findViewById(R.id.message);
-        
+
         StoreManager.getInstance().setManagedSkus(null, null);
         StoreManager.getInstance().addEventListener(new StoreEventListener() {
             @Override
