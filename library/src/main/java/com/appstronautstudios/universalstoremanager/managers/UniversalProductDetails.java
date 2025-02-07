@@ -5,65 +5,63 @@ import com.android.billingclient.api.ProductDetails;
 import java.util.List;
 
 public class UniversalProductDetails {
-
     private final String productId;
     private final String title;
     private final String description;
-    private final String price;
+    private final String priceText; // Formatted price string (e.g., "$4.99")
     private final String priceCurrencyCode;
+    private final float priceValue; // Direct float representation of the price
     private final boolean isSubscription;
 
-    public UniversalProductDetails(String productId, String title, String description, String price, String priceCurrencyCode, boolean isSubscription) {
+    public UniversalProductDetails(String productId, String title, String description, String priceText, String priceCurrencyCode, float priceValue, boolean isSubscription) {
         this.productId = productId;
         this.title = title;
         this.description = description;
-        this.price = price;
+        this.priceText = priceText;
         this.priceCurrencyCode = priceCurrencyCode;
+        this.priceValue = priceValue;
         this.isSubscription = isSubscription;
     }
 
     public static UniversalProductDetails fromProductDetails(ProductDetails details) {
         if (details == null) {
-            return new UniversalProductDetails("N/A", "N/A", "N/A", "N/A", "N/A", false);
+            return new UniversalProductDetails("N/A", "N/A", "N/A", "0.00", "N/A", 0.0f, false);
         }
 
         boolean isSubscription = details.getSubscriptionOfferDetails() != null;
+        float priceAmount = 0.0f;
+        String formattedPrice = "0.00";
+        String currencyCode = "N/A";
 
         if (isSubscription) {
-            // Handle Subscription Pricing
             List<ProductDetails.SubscriptionOfferDetails> offerDetails = details.getSubscriptionOfferDetails();
-            if (offerDetails.isEmpty()) {
-                return new UniversalProductDetails(details.getProductId(), details.getTitle(), details.getDescription(), "N/A", "N/A", true);
+            if (offerDetails != null && !offerDetails.isEmpty()) {
+                ProductDetails.PricingPhase pricingPhase = offerDetails.get(0).getPricingPhases().getPricingPhaseList().get(0);
+                formattedPrice = pricingPhase.getFormattedPrice();
+                currencyCode = pricingPhase.getPriceCurrencyCode();
+                priceAmount = pricingPhase.getPriceAmountMicros() / 1_000_000f; // Convert micros to float
             }
-
-            ProductDetails.PricingPhase pricingPhase = offerDetails.get(0).getPricingPhases().getPricingPhaseList().get(0);
-
-            return new UniversalProductDetails(
-                    details.getProductId(),
-                    details.getTitle(),
-                    details.getDescription(),
-                    pricingPhase.getFormattedPrice(),
-                    pricingPhase.getPriceCurrencyCode(),
-                    true
-            );
         } else {
-            // Handle In-App Product Pricing
             ProductDetails.OneTimePurchaseOfferDetails oneTimePurchaseDetails = details.getOneTimePurchaseOfferDetails();
-            if (oneTimePurchaseDetails == null) {
-                return new UniversalProductDetails(details.getProductId(), details.getTitle(), details.getDescription(), "N/A", "N/A", false);
+            if (oneTimePurchaseDetails != null) {
+                formattedPrice = oneTimePurchaseDetails.getFormattedPrice();
+                currencyCode = oneTimePurchaseDetails.getPriceCurrencyCode();
+                priceAmount = oneTimePurchaseDetails.getPriceAmountMicros() / 1_000_000f; // Convert micros to float
             }
-
-            return new UniversalProductDetails(
-                    details.getProductId(),
-                    details.getTitle(),
-                    details.getDescription(),
-                    oneTimePurchaseDetails.getFormattedPrice(),
-                    oneTimePurchaseDetails.getPriceCurrencyCode(),
-                    false
-            );
         }
+
+        return new UniversalProductDetails(
+                details.getProductId(),
+                details.getTitle(),
+                details.getDescription(),
+                formattedPrice,
+                currencyCode,
+                priceAmount,
+                isSubscription
+        );
     }
 
+    // Getters
     public String getProductId() {
         return productId;
     }
@@ -76,12 +74,16 @@ public class UniversalProductDetails {
         return description;
     }
 
-    public String getPrice() {
-        return price;
+    public String getPriceText() {
+        return priceText;
     }
 
     public String getPriceCurrencyCode() {
         return priceCurrencyCode;
+    }
+
+    public float getPriceValue() {
+        return priceValue;
     }
 
     public boolean isSubscription() {
