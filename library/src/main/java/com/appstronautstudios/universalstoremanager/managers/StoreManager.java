@@ -31,6 +31,7 @@ public class StoreManager {
 
     public static final int INIT_FAIL_UNKNOWN = -99;
     public static final int PURCHASE_FAIL_UNKNOWN = -199;
+    public static final int DETAIL_FAIL_UNKNOWN = -299;
 
     private static final StoreManager INSTANCE = new StoreManager();
 
@@ -358,6 +359,11 @@ public class StoreManager {
         });
     }
 
+    /**
+     * Fetch all product details as UniversalProductDetails wrapper class
+     *
+     * @param listener - success return arraylist of UniversalProductDetails. Failure returns code
+     */
     public void getAllProductDetails(SuccessFailListener listener) {
         getProductDetails(subscriptionSkus, BillingClient.ProductType.SUBS, new SuccessFailListener() {
             @Override
@@ -365,15 +371,15 @@ public class StoreManager {
                 getProductDetails(inAppSkus, BillingClient.ProductType.INAPP, new SuccessFailListener() {
                     @Override
                     public void success(Object object2) {
-                        ArrayList<ProductDetails> allProductDetails = new ArrayList<>();
+                        ArrayList<UniversalProductDetails> allProductDetails = new ArrayList<>();
                         if (object1 instanceof List<?> rawList) {
-                            if (!rawList.isEmpty() && rawList.get(0) instanceof ProductDetails) {
-                                allProductDetails.addAll((List<ProductDetails>) object1);
+                            if (!rawList.isEmpty() && rawList.get(0) instanceof UniversalProductDetails) {
+                                allProductDetails.addAll((List<UniversalProductDetails>) object1);
                             }
                         }
                         if (object2 instanceof List<?> rawList) {
-                            if (!rawList.isEmpty() && rawList.get(0) instanceof ProductDetails) {
-                                allProductDetails.addAll((List<ProductDetails>) object2);
+                            if (!rawList.isEmpty() && rawList.get(0) instanceof UniversalProductDetails) {
+                                allProductDetails.addAll((List<UniversalProductDetails>) object2);
                             }
                         }
                         if (listener != null) listener.success(allProductDetails);
@@ -381,7 +387,12 @@ public class StoreManager {
 
                     @Override
                     public void failure(Object object) {
-                        if (listener != null) listener.failure(object);
+                        if (object instanceof Integer) {
+                            int value = (int) object;
+                            if (listener != null) listener.failure(value);
+                        } else {
+                            if (listener != null) listener.failure(DETAIL_FAIL_UNKNOWN);
+                        }
                     }
                 });
             }
@@ -393,10 +404,20 @@ public class StoreManager {
         });
     }
 
+    /**
+     * Fetch sub product details as UniversalProductDetails wrapper class
+     *
+     * @param listener - success return arraylist of UniversalProductDetails. Failure returns code
+     */
     public void getSubDetails(SuccessFailListener listener) {
         getProductDetails(subscriptionSkus, BillingClient.ProductType.SUBS, listener);
     }
 
+    /**
+     * Fetch in-app product details as UniversalProductDetails wrapper class
+     *
+     * @param listener - success return arraylist of UniversalProductDetails. Failure returns code
+     */
     public void getInAppDetails(SuccessFailListener listener) {
         getProductDetails(inAppSkus, BillingClient.ProductType.INAPP, listener);
     }
@@ -419,9 +440,13 @@ public class StoreManager {
                 queryProductDetailsParams,
                 (billingResult, productDetailsList) -> {
                     if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        if (listener != null) listener.success(productDetailsList);
+                        ArrayList<UniversalProductDetails> details = new ArrayList<>();
+                        for (ProductDetails productDetails : productDetailsList) {
+                            details.add(UniversalProductDetails.fromProductDetails(productDetails));
+                        }
+                        if (listener != null) listener.success(details);
                     } else {
-                        if (listener != null) listener.failure(billingResult);
+                        if (listener != null) listener.failure(billingResult.getResponseCode());
                     }
                 }
         );
