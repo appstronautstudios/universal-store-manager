@@ -314,7 +314,13 @@ public class StoreManager {
         }
     }
 
+    /**
+     * Clear cache and then fetch INAPP and SUBS purchases
+     *
+     * @param listener - success/fail of cache update operation. Returns int code on failure
+     */
     private void updatePurchaseCache(SuccessFailListener listener) {
+        purchaseCache.clear(); // Remove old entries
         queryProductStates(BillingClient.ProductType.INAPP, new SuccessFailListener() {
             @Override
             public void success(Object object) {
@@ -352,11 +358,8 @@ public class StoreManager {
                     }
                 }
 
-                // Safely update purchaseCache
-                synchronized (purchaseCache) {
-                    purchaseCache.clear(); // Remove old entries
-                    purchaseCache.putAll(updatedCache); // Add valid purchases
-                }
+                // Add valid purchases
+                purchaseCache.putAll(updatedCache);
 
                 if (listener != null) listener.success(purchaseCache);
             } else {
