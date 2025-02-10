@@ -79,7 +79,9 @@ public class StoreManager {
     }
 
     public void addEventListener(StoreEventListener l) {
-        listeners.add(l);
+        if(!listeners.contains(l)) {
+            listeners.add(l);
+        }
     }
 
     public void removeEventListener(StoreEventListener l) {
