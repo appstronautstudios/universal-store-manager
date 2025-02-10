@@ -23,9 +23,14 @@ public class UniversalProductDetails {
         this.isSubscription = isSubscription;
     }
 
-    public static UniversalProductDetails fromProductDetails(ProductDetails details) {
+    /**
+     * @param details - Google Billing ProductDetails object to parse and expose
+     * @return - UniversalProductDetails object with title, price float, currency code etc
+     * @throws Exception - If there are any issues parsing out this detail object throw an exception with a string error message
+     */
+    public static UniversalProductDetails fromProductDetails(ProductDetails details) throws Exception {
         if (details == null) {
-            return new UniversalProductDetails("N/A", "N/A", "N/A", "0.00", "N/A", 0.0f, false);
+            throw new Exception("Null product details");
         }
 
         boolean isSubscription = details.getSubscriptionOfferDetails() != null;
@@ -40,6 +45,8 @@ public class UniversalProductDetails {
                 formattedPrice = pricingPhase.getFormattedPrice();
                 currencyCode = pricingPhase.getPriceCurrencyCode();
                 priceAmount = pricingPhase.getPriceAmountMicros() / 1_000_000f; // Convert micros to float
+            } else {
+                throw new Exception("Null subscription offer details");
             }
         } else {
             ProductDetails.OneTimePurchaseOfferDetails oneTimePurchaseDetails = details.getOneTimePurchaseOfferDetails();
@@ -47,6 +54,8 @@ public class UniversalProductDetails {
                 formattedPrice = oneTimePurchaseDetails.getFormattedPrice();
                 currencyCode = oneTimePurchaseDetails.getPriceCurrencyCode();
                 priceAmount = oneTimePurchaseDetails.getPriceAmountMicros() / 1_000_000f; // Convert micros to float
+            } else {
+                throw new Exception("Null one-time purchase offer details");
             }
         }
 

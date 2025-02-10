@@ -32,6 +32,7 @@ public class StoreManager {
     public static final int INIT_FAIL_UNKNOWN = -99;
     public static final int PURCHASE_FAIL_UNKNOWN = -199;
     public static final int DETAIL_FAIL_UNKNOWN = -299;
+    public static final int PARSING_FAIL_UNKNOWN = -399;
 
     private static final StoreManager INSTANCE = new StoreManager();
 
@@ -233,13 +234,23 @@ public class StoreManager {
                 .build();
 
         billingClient.queryProductDetailsAsync(params, (billingResult, productDetailsList) -> {
-            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && productDetailsList != null && !productDetailsList.isEmpty()) {
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && !productDetailsList.isEmpty()) {
+                BillingFlowParams.ProductDetailsParams.Builder productDetailsParamsBuilder =
+                        BillingFlowParams.ProductDetailsParams.newBuilder()
+                                .setProductDetails(productDetailsList.get(0));
+
+                // Ensure SubscriptionOfferDetails is not null before accessing it
+                if (isSubscription) {
+                    List<ProductDetails.SubscriptionOfferDetails> offerDetails = productDetailsList.get(0).getSubscriptionOfferDetails();
+                    if (offerDetails != null && !offerDetails.isEmpty()) {
+                        productDetailsParamsBuilder.setOfferToken(offerDetails.get(0).getOfferToken());
+                    }
+                }
+
                 BillingFlowParams flowParams = BillingFlowParams.newBuilder()
-                        .setProductDetailsParamsList(List.of(BillingFlowParams.ProductDetailsParams.newBuilder()
-                                .setProductDetails(productDetailsList.get(0))
-                                .setOfferToken(isSubscription ? productDetailsList.get(0).getSubscriptionOfferDetails().get(0).getOfferToken() : null)
-                                .build()))
+                        .setProductDetailsParamsList(List.of(productDetailsParamsBuilder.build()))
                         .build();
+
                 billingClient.launchBillingFlow(activity, flowParams);
             } else {
                 storePurchaseErrorMain(billingResult.getResponseCode());
@@ -440,11 +451,15 @@ public class StoreManager {
                 queryProductDetailsParams,
                 (billingResult, productDetailsList) -> {
                     if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        ArrayList<UniversalProductDetails> details = new ArrayList<>();
-                        for (ProductDetails productDetails : productDetailsList) {
-                            details.add(UniversalProductDetails.fromProductDetails(productDetails));
+                        try {
+                            ArrayList<UniversalProductDetails> details = new ArrayList<>();
+                            for (ProductDetails productDetails : productDetailsList) {
+                                details.add(UniversalProductDetails.fromProductDetails(productDetails));
+                            }
+                            if (listener != null) listener.success(details);
+                        } catch (Exception e) {
+                            if (listener != null) listener.failure(PARSING_FAIL_UNKNOWN);
                         }
-                        if (listener != null) listener.success(details);
                     } else {
                         if (listener != null) listener.failure(billingResult.getResponseCode());
                     }
