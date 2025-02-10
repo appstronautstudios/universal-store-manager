@@ -217,8 +217,8 @@ public class StoreManager {
 
                 @Override
                 public void failure(Object object) {
-                    if (object instanceof BillingResult) {
-                        storeBillingInitializedMain(false, ((BillingResult) object).getResponseCode());
+                    if (object instanceof Integer) {
+                        storeBillingInitializedMain(false, (int) object);
                     } else {
                         storeBillingInitializedMain(false, INIT_FAIL_UNKNOWN);
                     }
@@ -332,7 +332,7 @@ public class StoreManager {
      * Query product type and update cache as needed
      *
      * @param skuType  - BillingClient.ProductType to query
-     * @param listener - callback listener
+     * @param listener - callback listener. Failure return response code
      */
     private void queryProductStates(String skuType, SuccessFailListener listener) {
         QueryPurchasesParams params = QueryPurchasesParams.newBuilder()
@@ -341,36 +341,69 @@ public class StoreManager {
 
         billingClient.queryPurchasesAsync(params, (billingResult, purchases) -> {
             if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                Map<String, Purchase> updatedCache = new HashMap<>(); // Temporary cache
+
                 for (Purchase purchase : purchases) {
                     for (String productId : purchase.getProducts()) {
+                        // Check if the purchase should be kept in cache
                         if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
-                            purchaseCache.put(productId, purchase);
-                        } else {
-                            purchaseCache.remove(productId);
+                            updatedCache.put(productId, purchase);
                         }
                     }
                 }
 
+                // Safely update purchaseCache
+                synchronized (purchaseCache) {
+                    purchaseCache.clear(); // Remove old entries
+                    purchaseCache.putAll(updatedCache); // Add valid purchases
+                }
+
                 if (listener != null) listener.success(purchaseCache);
             } else {
-                if (listener != null) listener.failure(billingResult);
+                if (listener != null) listener.failure(billingResult.getResponseCode());
             }
         });
     }
 
-    public void consumePurchase(Purchase purchase, SuccessFailListener listener) {
+    /**
+     * Consume an in-app product. Has to be in our purchase cache already to succeed.
+     *
+     * @param sku      - sku of purchase to remove
+     * @param listener - success fail listener. Will fail if async removal request fails OR if the
+     *                 sku doesn't exist in our purchase cache. Failure will return response code.
+     *                 Success will return token.
+     */
+    public void consumePurchase(String sku, SuccessFailListener listener) {
+        Purchase purchase = purchaseCache.get(sku); // Retrieve from cache
+
+        if (purchase == null) {
+            // Purchase not in cache. Cannot consume without it.
+            if (listener != null) {
+                listener.failure(BillingClient.BillingResponseCode.ITEM_NOT_OWNED);
+            }
+            return; // Exit early
+        }
+
+        // Create consumption parameters using the cached purchase token
         ConsumeParams consumeParams = ConsumeParams.newBuilder()
                 .setPurchaseToken(purchase.getPurchaseToken())
                 .build();
 
         billingClient.consumeAsync(consumeParams, (billingResult, purchaseToken) -> {
             if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                if (listener != null) listener.success(null);
+                // Remove the purchase from cache since it's now consumed
+                purchaseCache.remove(sku);
+                if (listener != null) {
+                    listener.success(purchaseToken);
+                }
             } else {
-                if (listener != null) listener.failure(billingResult);
+                if (listener != null) {
+                    listener.failure(billingResult.getResponseCode());
+                }
             }
         });
     }
+
 
     /**
      * Fetch all product details as UniversalProductDetails wrapper class
@@ -404,7 +437,7 @@ public class StoreManager {
                     public void failure(Object object) {
                         if (object instanceof Integer) {
                             new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
-                                if (listener != null) listener.failure((int) object);
+                                if (listener != null) listener.failure(object);
                             });
                         } else {
                             new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread

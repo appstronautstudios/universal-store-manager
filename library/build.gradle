@@ -37,7 +37,7 @@ afterEvaluate {
                 from components.release
                 groupId = 'com.github.appstronautstudios'
                 artifactId = 'universalstoremanager'
-                version = '0.4.6'
+                version = '0.4.7'
             }
         }
     }
