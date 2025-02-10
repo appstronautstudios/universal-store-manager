@@ -80,7 +80,7 @@ public class StoreManager {
     }
 
     public void addEventListener(StoreEventListener l) {
-        if(!listeners.contains(l)) {
+        if (!listeners.contains(l)) {
             listeners.add(l);
         }
     }
@@ -395,16 +395,21 @@ public class StoreManager {
                                 allProductDetails.addAll((List<UniversalProductDetails>) object2);
                             }
                         }
-                        if (listener != null) listener.success(allProductDetails);
+                        new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
+                            if (listener != null) listener.success(allProductDetails);
+                        });
                     }
 
                     @Override
                     public void failure(Object object) {
                         if (object instanceof Integer) {
-                            int value = (int) object;
-                            if (listener != null) listener.failure(value);
+                            new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
+                                if (listener != null) listener.failure((int) object);
+                            });
                         } else {
-                            if (listener != null) listener.failure(DETAIL_FAIL_UNKNOWN);
+                            new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
+                                if (listener != null) listener.failure(DETAIL_FAIL_UNKNOWN);
+                            });
                         }
                     }
                 });
@@ -412,7 +417,9 @@ public class StoreManager {
 
             @Override
             public void failure(Object object) {
-                if (listener != null) listener.failure(object);
+                new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
+                    if (listener != null) listener.failure(object);
+                });
             }
         });
     }
