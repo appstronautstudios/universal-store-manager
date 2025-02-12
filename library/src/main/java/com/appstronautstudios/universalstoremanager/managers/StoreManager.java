@@ -89,6 +89,18 @@ public class StoreManager {
         listeners.remove(l);
     }
 
+    private void listenerSuccessOnMain(SuccessFailListener listener, Object object) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (listener != null) listener.success(object);
+        });
+    }
+
+    private void listenerFailureOnMain(SuccessFailListener listener, Object object) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (listener != null) listener.failure(object);
+        });
+    }
+
     /**
      * utility function to force callback on main thread
      */
@@ -179,9 +191,7 @@ public class StoreManager {
                         if (retryCounter > 0) {
                             connectBillingClient(retryCounter - 1, listener);
                         } else {
-                            if (listener != null) {
-                                listener.failure(billingResult.getResponseCode());
-                            }
+                            listenerFailureOnMain(listener, billingResult.getResponseCode());
                         }
                     }
                 }
@@ -279,9 +289,9 @@ public class StoreManager {
                     .build();
             billingClient.acknowledgePurchase(params, billingResult -> {
                 if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                    if (listener != null) listener.success(null); // Success callback
+                    listenerSuccessOnMain(listener, null);
                 } else {
-                    if (listener != null) listener.failure(billingResult); // Failure callback
+                    listenerFailureOnMain(listener, billingResult.getResponseCode());
                 }
             });
         }
@@ -302,7 +312,7 @@ public class StoreManager {
 
             @Override
             public void failure(Object object) {
-                if (listener != null) listener.failure(object);
+                listenerFailureOnMain(listener, object);
             }
         });
     }
@@ -334,9 +344,9 @@ public class StoreManager {
                 // Add valid purchases
                 purchaseCache.putAll(updatedCache);
 
-                if (listener != null) listener.success(purchaseCache);
+                listenerSuccessOnMain(listener, purchaseCache);
             } else {
-                if (listener != null) listener.failure(billingResult.getResponseCode());
+                listenerFailureOnMain(listener, billingResult.getResponseCode());
             }
         });
     }
@@ -354,9 +364,7 @@ public class StoreManager {
 
         if (purchase == null) {
             // Purchase not in cache. Cannot consume without it.
-            if (listener != null) {
-                listener.failure(BillingClient.BillingResponseCode.ITEM_NOT_OWNED);
-            }
+            listenerFailureOnMain(listener, BillingClient.BillingResponseCode.ITEM_NOT_OWNED);
             return; // Exit early
         }
 
@@ -369,13 +377,9 @@ public class StoreManager {
             if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
                 // Remove the purchase from cache since it's now consumed
                 purchaseCache.remove(sku);
-                if (listener != null) {
-                    listener.success(purchaseToken);
-                }
+                listenerSuccessOnMain(listener, purchaseToken);
             } else {
-                if (listener != null) {
-                    listener.failure(billingResult.getResponseCode());
-                }
+                listenerFailureOnMain(listener, billingResult.getResponseCode());
             }
         });
     }
@@ -404,21 +408,15 @@ public class StoreManager {
                                 allProductDetails.addAll((List<UniversalProductDetails>) object2);
                             }
                         }
-                        new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
-                            if (listener != null) listener.success(allProductDetails);
-                        });
+                        listenerSuccessOnMain(listener, allProductDetails);
                     }
 
                     @Override
                     public void failure(Object object) {
                         if (object instanceof Integer) {
-                            new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
-                                if (listener != null) listener.failure(object);
-                            });
+                            listenerFailureOnMain(listener, object);
                         } else {
-                            new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
-                                if (listener != null) listener.failure(DETAIL_FAIL_UNKNOWN);
-                            });
+                            listenerFailureOnMain(listener, DETAIL_FAIL_UNKNOWN);
                         }
                     }
                 });
@@ -426,9 +424,7 @@ public class StoreManager {
 
             @Override
             public void failure(Object object) {
-                new Handler(Looper.getMainLooper()).post(() -> { // don't trust android billing to return back to main thread
-                    if (listener != null) listener.failure(object);
-                });
+                listenerFailureOnMain(listener, object);
             }
         });
     }
@@ -474,12 +470,12 @@ public class StoreManager {
                             for (ProductDetails productDetails : productDetailsList) {
                                 details.add(UniversalProductDetails.fromProductDetails(productDetails));
                             }
-                            if (listener != null) listener.success(details);
+                            listenerSuccessOnMain(listener, details);
                         } catch (Exception e) {
-                            if (listener != null) listener.failure(PARSING_FAIL_UNKNOWN);
+                            listenerFailureOnMain(listener, PARSING_FAIL_UNKNOWN);
                         }
                     } else {
-                        if (listener != null) listener.failure(billingResult.getResponseCode());
+                        listenerFailureOnMain(listener, billingResult.getResponseCode());
                     }
                 }
         );
