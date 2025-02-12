@@ -92,19 +92,6 @@ public class StoreManager {
     /**
      * utility function to force callback on main thread
      */
-    private void storeBillingInitializedMain(boolean success, int code) {
-        new Handler(Looper.getMainLooper()).post(() -> {
-            if (!listeners.isEmpty()) {
-                for (StoreEventListener l : listeners) {
-                    l.storeBillingInitialized(success, code);
-                }
-            }
-        });
-    }
-
-    /**
-     * utility function to force callback on main thread
-     */
     private void storePurchaseCompleteMain(String sku) {
         new Handler(Looper.getMainLooper()).post(() -> {
             if (!listeners.isEmpty()) {
@@ -144,7 +131,7 @@ public class StoreManager {
         });
     }
 
-    public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps) {
+    public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps, SuccessFailListener listener) {
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
             if (purchases != null) {
@@ -169,14 +156,14 @@ public class StoreManager {
         }
 
         // make sure that we're connected (this will internally check)
-        connectBillingClient(2);
+        connectBillingClient(2, listener);
     }
 
-    private void connectBillingClient(int retryCounter) {
+    private void connectBillingClient(int retryCounter, SuccessFailListener listener) {
         int connectedState = billingClient.getConnectionState();
         if (connectedState == BillingClient.ConnectionState.CONNECTED) {
             // already connected. Update cache and inform user
-            handleBillingInitialize();
+            handleBillingInitialize(listener);
         } else if (connectedState == BillingClient.ConnectionState.CONNECTING) {
             // respect that whatever process starting the connection process will eventually
             // complete and launch the necessary callback. Do nothing
@@ -187,12 +174,14 @@ public class StoreManager {
                 public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
                     if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
                         // The BillingClient is ready. You can query purchases here.
-                        handleBillingInitialize();
+                        handleBillingInitialize(listener);
                     } else {
                         if (retryCounter > 0) {
-                            connectBillingClient(retryCounter - 1);
+                            connectBillingClient(retryCounter - 1, listener);
                         } else {
-                            storeBillingInitializedMain(false, billingResult.getResponseCode());
+                            if (listener != null) {
+                                listener.failure(billingResult.getResponseCode());
+                            }
                         }
                     }
                 }
@@ -201,30 +190,14 @@ public class StoreManager {
                 public void onBillingServiceDisconnected() {
                     // Try to restart the connection on the next request to
                     // Google Play by calling the startConnection() method.
-                    connectBillingClient(0);
+                    connectBillingClient(0, listener);
                 }
             });
         }
     }
 
-    private void handleBillingInitialize() {
-        if (isStoreLoaded()) {
-            updatePurchaseCache(new SuccessFailListener() {
-                @Override
-                public void success(Object object) {
-                    storeBillingInitializedMain(true, 0);
-                }
-
-                @Override
-                public void failure(Object object) {
-                    if (object instanceof Integer) {
-                        storeBillingInitializedMain(false, (int) object);
-                    } else {
-                        storeBillingInitializedMain(false, INIT_FAIL_UNKNOWN);
-                    }
-                }
-            });
-        }
+    private void handleBillingInitialize(SuccessFailListener listener) {
+        updatePurchaseCache(listener);
     }
 
     public void purchase(Activity activity, String productId, boolean isSubscription) {
