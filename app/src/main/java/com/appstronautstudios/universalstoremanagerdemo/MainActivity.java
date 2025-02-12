@@ -7,6 +7,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.appstronautstudios.universalstoremanager.managers.StoreManager;
 import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
+import com.appstronautstudios.universalstoremanager.utils.SuccessFailListener;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -20,22 +21,8 @@ public class MainActivity extends AppCompatActivity {
         StoreManager.getInstance().setManagedSkus(null, null);
         StoreManager.getInstance().addEventListener(new StoreEventListener() {
             @Override
-            public void storeBillingInitialized(boolean success, int code) {
-                if (success) {
-                    messageTV.setText("store billing initialized");
-                } else {
-                    messageTV.setText("store billing failed to initialize. Error code: " + code);
-                }
-            }
-
-            @Override
             public void storePurchaseComplete(String sku) {
                 messageTV.setText("purchased: " + sku);
-            }
-
-            @Override
-            public void storePurchasePending(String sku) {
-
             }
 
             @Override
@@ -43,6 +30,16 @@ public class MainActivity extends AppCompatActivity {
                 messageTV.setText("failed to purchase: " + errorCode);
             }
         });
-        StoreManager.getInstance().setupBillingProcessor(this, null, null);
+        StoreManager.getInstance().setupBillingProcessor(this, null, null, new SuccessFailListener() {
+            @Override
+            public void success(Object object) {
+                messageTV.setText("store billing initialized");
+            }
+
+            @Override
+            public void failure(Object object) {
+                messageTV.setText("store billing failed to initialize.");
+            }
+        });
     }
 }
