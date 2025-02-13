@@ -39,7 +39,7 @@ public class StoreManager {
     private boolean debuggable;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> inAppSkus = new ArrayList<>();
-    private final Map<String, Purchase> purchaseCache = new HashMap<>(); // MAP OF PURCHASE STATES
+    private Map<String, Purchase> purchaseCache = new HashMap<>(); // MAP OF PURCHASE STATES
     private ArrayList<StoreEventListener> listeners = new ArrayList<>();
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
@@ -303,11 +303,23 @@ public class StoreManager {
      * @param listener - success/fail of cache update operation. Returns int code on failure
      */
     private void updatePurchaseCache(SuccessFailListener listener) {
-        purchaseCache.clear(); // Remove old entries
-        queryProductStates(BillingClient.ProductType.INAPP, new SuccessFailListener() {
+        getPurchases(BillingClient.ProductType.INAPP, new SuccessFailListener() {
             @Override
-            public void success(Object object) {
-                queryProductStates(BillingClient.ProductType.SUBS, listener);
+            public void success(Object object1) {
+                getPurchases(BillingClient.ProductType.SUBS, new SuccessFailListener() {
+                    @Override
+                    public void success(Object object2) {
+                        Map<String, Purchase> updatedPurchases = new HashMap<>();
+                        updatedPurchases.putAll((Map<String, Purchase>) object1);
+                        updatedPurchases.putAll((Map<String, Purchase>) object2);
+                        purchaseCache = updatedPurchases;
+                    }
+
+                    @Override
+                    public void failure(Object object) {
+                        listenerFailureOnMain(listener, object);
+                    }
+                });
             }
 
             @Override
@@ -323,7 +335,7 @@ public class StoreManager {
      * @param skuType  - BillingClient.ProductType to query
      * @param listener - callback listener. Failure return response code
      */
-    private void queryProductStates(String skuType, SuccessFailListener listener) {
+    private void getPurchases(String skuType, SuccessFailListener listener) {
         QueryPurchasesParams params = QueryPurchasesParams.newBuilder()
                 .setProductType(skuType)
                 .build();
@@ -340,11 +352,7 @@ public class StoreManager {
                         }
                     }
                 }
-
-                // Add valid purchases
-                purchaseCache.putAll(updatedCache);
-
-                listenerSuccessOnMain(listener, purchaseCache);
+                listenerSuccessOnMain(listener, updatedCache);
             } else {
                 listenerFailureOnMain(listener, billingResult.getResponseCode());
             }
