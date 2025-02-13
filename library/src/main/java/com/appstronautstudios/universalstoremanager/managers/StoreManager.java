@@ -39,7 +39,7 @@ public class StoreManager {
     private boolean debuggable;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> inAppSkus = new ArrayList<>();
-    private Map<String, Purchase> purchaseCache = new HashMap<>(); // MAP OF PURCHASE STATES
+    private Map<String, Purchase> purchaseCache;
     private ArrayList<StoreEventListener> listeners = new ArrayList<>();
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
@@ -56,7 +56,7 @@ public class StoreManager {
     }
 
     public boolean isStoreLoaded() {
-        return billingClient != null && billingClient.isReady();
+        return purchaseCache != null;
     }
 
     public void setDebuggable(boolean debuggable) {
@@ -144,6 +144,8 @@ public class StoreManager {
     }
 
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps, SuccessFailListener listener) {
+        // TODO parse and load encrypted cache from user prefs
+
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
             if (purchases != null) {
@@ -152,6 +154,7 @@ public class StoreManager {
                 }
             }
         };
+
         // store the sub and inApp ids
         subscriptionSkus = subs;
         inAppSkus = inApps;
@@ -312,6 +315,7 @@ public class StoreManager {
                         Map<String, Purchase> updatedPurchases = new HashMap<>();
                         updatedPurchases.putAll((Map<String, Purchase>) object1);
                         updatedPurchases.putAll((Map<String, Purchase>) object2);
+                        // TODO update memory cache and prefs cache
                         purchaseCache = updatedPurchases;
                     }
 
