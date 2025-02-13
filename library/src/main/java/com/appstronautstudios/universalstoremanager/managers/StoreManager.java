@@ -400,6 +400,8 @@ public class StoreManager {
 
     // Load purchases from encrypted SharedPreferences
     private void loadPurchasesFromPrefs() {
+        if (storeDiskCache == null) return;
+
         Gson gson = new Gson();
         String jsonString = storeDiskCache.getString("purchases", "[]");
         try {
@@ -423,6 +425,8 @@ public class StoreManager {
 
     // Save purchases to encrypted SharedPreferences
     private void savePurchasesToPrefs() {
+        if (storeDiskCache == null) return;
+
         Gson gson = new Gson();
         JSONArray jsonArray = new JSONArray();
 
