@@ -2,10 +2,13 @@ package com.appstronautstudios.universalstoremanager.managers;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 
 import androidx.annotation.NonNull;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
 
 import com.android.billingclient.api.AcknowledgePurchaseParams;
 import com.android.billingclient.api.BillingClient;
@@ -21,18 +24,13 @@ import com.android.billingclient.api.QueryProductDetailsParams;
 import com.android.billingclient.api.QueryPurchasesParams;
 import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
 import com.appstronautstudios.universalstoremanager.utils.SuccessFailListener;
-
-import android.content.Context;
-import android.content.SharedPreferences;
-import androidx.security.crypto.EncryptedSharedPreferences;
-import androidx.security.crypto.MasterKey;
-import java.io.IOException;
-import java.security.GeneralSecurityException;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 
 import org.json.JSONArray;
 
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -65,7 +63,7 @@ public class StoreManager {
     }
 
     public void initSharedPrefs(Context context) {
-        if(storeDiskCache == null) {
+        if (storeDiskCache == null) {
             try {
                 MasterKey masterKey = new MasterKey.Builder(context)
                         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -76,8 +74,7 @@ public class StoreManager {
                         "encr",
                         masterKey,
                         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                );
+                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
             } catch (GeneralSecurityException | IOException e) {
                 e.printStackTrace();
             }
@@ -350,9 +347,11 @@ public class StoreManager {
                         Map<String, Purchase> updatedPurchases = new HashMap<>();
                         updatedPurchases.putAll((Map<String, Purchase>) object1);
                         updatedPurchases.putAll((Map<String, Purchase>) object2);
-                        // TODO update memory cache and prefs cache
+                        // update memory cache and prefs cache
                         purchaseCache = updatedPurchases;
                         savePurchasesToPrefs();
+                        // inform callback
+                        listenerSuccessOnMain(listener, updatedPurchases);
                     }
 
                     @Override
@@ -407,7 +406,7 @@ public class StoreManager {
             JSONArray jsonArray = new JSONArray(jsonString);
             for (int i = 0; i < jsonArray.length(); i++) {
                 try {
-                    Purchase p =  gson.fromJson(jsonArray.getString(i), Purchase.class);
+                    Purchase p = gson.fromJson(jsonArray.getString(i), Purchase.class);
                     for (String productId : p.getProducts()) {
                         purchaseCache.put(productId, p);
                     }
