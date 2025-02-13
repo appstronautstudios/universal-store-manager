@@ -22,6 +22,17 @@ import com.android.billingclient.api.QueryPurchasesParams;
 import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
 import com.appstronautstudios.universalstoremanager.utils.SuccessFailListener;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
+
+import org.json.JSONArray;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -45,9 +56,31 @@ public class StoreManager {
     private PurchasesUpdatedListener purchasesUpdatedListener;
     private BillingClient billingClient;
 
+    private SharedPreferences storeDiskCache;
+
     private StoreManager() {
         if (INSTANCE != null) {
             throw new IllegalStateException("Already instantiated");
+        }
+    }
+
+    public void initSharedPrefs(Context context) {
+        if(storeDiskCache == null) {
+            try {
+                MasterKey masterKey = new MasterKey.Builder(context)
+                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                        .build();
+
+                storeDiskCache = EncryptedSharedPreferences.create(
+                        context,
+                        "encr",
+                        masterKey,
+                        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                );
+            } catch (GeneralSecurityException | IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -145,7 +178,7 @@ public class StoreManager {
 
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps, SuccessFailListener listener) {
         // TODO parse and load encrypted cache from user prefs
-
+        initSharedPrefs(context);
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
             if (purchases != null) {
@@ -158,6 +191,8 @@ public class StoreManager {
         // store the sub and inApp ids
         subscriptionSkus = subs;
         inAppSkus = inApps;
+
+        loadPurchasesFromPrefs();
 
         // initialize client and start connection
         if (billingClient == null) {
@@ -317,6 +352,7 @@ public class StoreManager {
                         updatedPurchases.putAll((Map<String, Purchase>) object2);
                         // TODO update memory cache and prefs cache
                         purchaseCache = updatedPurchases;
+                        savePurchasesToPrefs();
                     }
 
                     @Override
@@ -361,6 +397,42 @@ public class StoreManager {
                 listenerFailureOnMain(listener, billingResult.getResponseCode());
             }
         });
+    }
+
+    // Load purchases from encrypted SharedPreferences
+    private void loadPurchasesFromPrefs() {
+        Gson gson = new Gson();
+        String jsonString = storeDiskCache.getString("purchases", "[]");
+        try {
+            JSONArray jsonArray = new JSONArray(jsonString);
+            for (int i = 0; i < jsonArray.length(); i++) {
+                try {
+                    Purchase p =  gson.fromJson(jsonArray.getString(i), Purchase.class);
+                    for (String productId : p.getProducts()) {
+                        purchaseCache.put(productId, p);
+                    }
+                } catch (JsonSyntaxException e) {
+                    e.printStackTrace();
+                    return; // Handle error properly in production
+                }
+
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Save purchases to encrypted SharedPreferences
+    private void savePurchasesToPrefs() {
+        Gson gson = new Gson();
+        JSONArray jsonArray = new JSONArray();
+
+        for (Map.Entry<String, Purchase> entry : purchaseCache.entrySet()) {
+            Purchase purchase = entry.getValue();
+            jsonArray.put(gson.toJson(purchase, Purchase.class)); // Add each Purchase as JSON
+        }
+
+        storeDiskCache.edit().putString("purchases", jsonArray.toString()).apply();
     }
 
     /**
