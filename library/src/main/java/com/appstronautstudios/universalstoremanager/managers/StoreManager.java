@@ -85,7 +85,7 @@ public class StoreManager {
         return INSTANCE;
     }
 
-    public boolean isStoreLoaded() {
+    private boolean isStoreLoaded() {
         return purchaseCache != null;
     }
 

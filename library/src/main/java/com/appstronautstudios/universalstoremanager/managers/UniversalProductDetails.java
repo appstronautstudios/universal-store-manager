@@ -41,7 +41,28 @@ public class UniversalProductDetails {
         if (isSubscription) {
             List<ProductDetails.SubscriptionOfferDetails> offerDetails = details.getSubscriptionOfferDetails();
             if (offerDetails != null && !offerDetails.isEmpty()) {
-                ProductDetails.PricingPhase pricingPhase = offerDetails.get(0).getPricingPhases().getPricingPhaseList().get(0);
+                // determine the correct pricing phase to reference for pricing
+                ProductDetails.PricingPhase pricingPhase = null;
+                for (ProductDetails.SubscriptionOfferDetails offer : offerDetails) {
+                    List<ProductDetails.PricingPhase> pricingPhases = offer.getPricingPhases().getPricingPhaseList();
+                    if (pricingPhases != null && !pricingPhases.isEmpty()) {
+                        for (ProductDetails.PricingPhase phase : pricingPhases) {
+                            // make sure we ignore free trial phase otherwise price string will show
+                            // up as "FREE" for users that haven't used a trial yet
+                            if (phase.getPriceAmountMicros() > 0) {
+                                pricingPhase = phase;
+                                break; // found a valid phase - break out
+                            }
+                        }
+                    }
+                    if (pricingPhase != null) {
+                        break; // found a valid phase - break out
+                    }
+                }
+                if (pricingPhase == null) {
+                    // safety check if we can't resolve a valid pricing phase
+                    throw new Exception("No pricing phase found");
+                }
                 formattedPrice = pricingPhase.getFormattedPrice();
                 currencyCode = pricingPhase.getPriceCurrencyCode();
                 priceAmount = pricingPhase.getPriceAmountMicros() / 1_000_000f; // Convert micros to float
