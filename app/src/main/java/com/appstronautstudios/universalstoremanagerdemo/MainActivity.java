@@ -18,7 +18,6 @@ public class MainActivity extends AppCompatActivity {
 
         final TextView messageTV = findViewById(R.id.message);
 
-        StoreManager.getInstance().setManagedSkus(null, null);
         StoreManager.getInstance().addEventListener(new StoreEventListener() {
             @Override
             public void storePurchaseComplete(String sku) {
@@ -30,8 +29,7 @@ public class MainActivity extends AppCompatActivity {
                 messageTV.setText("failed to purchase: " + errorCode);
             }
         });
-        StoreManager.getInstance().setupBillingProcessor(this, null, null, null);
-        StoreManager.getInstance().whenReady(new SuccessFailListener() {
+        StoreManager.getInstance().setupBillingProcessor(this, null, null, new SuccessFailListener() {
             @Override
             public void success(Object object) {
                 messageTV.setText("store billing initialized");

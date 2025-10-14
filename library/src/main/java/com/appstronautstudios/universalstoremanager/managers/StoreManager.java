@@ -55,11 +55,12 @@ public class StoreManager {
     private boolean debuggable;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> inAppSkus = new ArrayList<>();
-    private Map<String, Purchase> purchaseCache;
-    private ArrayList<StoreEventListener> listeners = new ArrayList<>();
+    private Map<String, Purchase> purchaseCache = new HashMap<>();
     private ConnectionState connectionState = ConnectionState.UNINITIALIZED;
 
-    // Listeners that get called when init completes
+    // listeners that get called when store lifecycle points are hit
+    private ArrayList<StoreEventListener> storeEventListeners = new ArrayList<>();
+    // listeners that get called when init completes
     private final List<SuccessFailListener> readyListeners = new ArrayList<>();
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
@@ -104,7 +105,7 @@ public class StoreManager {
         this.debuggable = debuggable;
     }
 
-    public void setManagedSkus(List<String> subscriptionSkus, List<String> consumableSkus) {
+    private void setManagedSkus(List<String> subscriptionSkus, List<String> consumableSkus) {
         if (subscriptionSkus != null) {
             this.subscriptionSkus.clear();
             this.subscriptionSkus.addAll(subscriptionSkus);
@@ -121,13 +122,13 @@ public class StoreManager {
     }
 
     public void addEventListener(StoreEventListener l) {
-        if (!listeners.contains(l)) {
-            listeners.add(l);
+        if (!storeEventListeners.contains(l)) {
+            storeEventListeners.add(l);
         }
     }
 
     public void removeEventListener(StoreEventListener l) {
-        listeners.remove(l);
+        storeEventListeners.remove(l);
     }
 
     private void listenerSuccessOnMain(SuccessFailListener listener, Object object) {
@@ -147,8 +148,8 @@ public class StoreManager {
      */
     private void storePurchaseCompleteMain(String sku) {
         new Handler(Looper.getMainLooper()).post(() -> {
-            if (!listeners.isEmpty()) {
-                for (StoreEventListener l : listeners) {
+            if (!storeEventListeners.isEmpty()) {
+                for (StoreEventListener l : storeEventListeners) {
                     l.storePurchaseComplete(sku);
                 }
             }
@@ -160,8 +161,8 @@ public class StoreManager {
      */
     private void storePurchasePendingMain(String sku) {
         new Handler(Looper.getMainLooper()).post(() -> {
-            if (!listeners.isEmpty()) {
-                for (StoreEventListener l : listeners) {
+            if (!storeEventListeners.isEmpty()) {
+                for (StoreEventListener l : storeEventListeners) {
                     l.storePurchasePending(sku);
                 }
             }
@@ -175,8 +176,8 @@ public class StoreManager {
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
-                if (!listeners.isEmpty()) {
-                    for (StoreEventListener l : listeners) {
+                if (!storeEventListeners.isEmpty()) {
+                    for (StoreEventListener l : storeEventListeners) {
                         l.storePurchaseError(code);
                     }
                 }
@@ -184,9 +185,14 @@ public class StoreManager {
         });
     }
 
+    public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps) {
+        setupBillingProcessor(context, subs, inApps, null);
+    }
+
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps, SuccessFailListener listener) {
-        // TODO parse and load encrypted cache from user prefs
+        // initialize encrypted cache
         initSharedPrefs(context);
+
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
             if (purchases != null) {
@@ -197,10 +203,13 @@ public class StoreManager {
         };
 
         // store the sub and inApp ids
-        subscriptionSkus = subs;
-        inAppSkus = inApps;
+        setManagedSkus(subs, inApps);
 
+        // before we ask google load our prefs from cache
         loadPurchasesFromPrefs();
+
+        // prepare listener to fire when setup is complete
+        whenReady(listener);
 
         // initialize client and start connection
         if (billingClient == null) {
@@ -214,25 +223,26 @@ public class StoreManager {
         }
 
         // make sure that we're connected (this will internally check)
-        connectBillingClient(2, listener);
+        connectBillingClient(2, null);
     }
 
     private void connectBillingClient(int retryCounter, SuccessFailListener listener) {
         int connectedState = billingClient.getConnectionState();
         if (connectedState == BillingClient.ConnectionState.CONNECTED) {
-            // already connected. Update cache and inform user
-            handleBillingInitialize(listener);
+            // already connected. Update cache
+            updatePurchaseCache(listener);
         } else if (connectedState == BillingClient.ConnectionState.CONNECTING) {
             // respect that whatever process starting the connection process will eventually
             // complete and launch the necessary callback. Do nothing
+            // TODO for anyone calling this function this is a listener black hole. Maybe risky
         } else {
             // connection closed or disconnected. Restart
             billingClient.startConnection(new BillingClientStateListener() {
                 @Override
                 public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
                     if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        // The BillingClient is ready. You can query purchases here.
-                        handleBillingInitialize(listener);
+                        // The BillingClient is ready. Update purchase cache
+                        updatePurchaseCache(listener);
                     } else {
                         if (retryCounter > 0) {
                             connectBillingClient(retryCounter - 1, listener);
@@ -253,10 +263,6 @@ public class StoreManager {
                 }
             });
         }
-    }
-
-    private void handleBillingInitialize(SuccessFailListener listener) {
-        updatePurchaseCache(listener);
     }
 
     public void purchase(Activity activity, String productId, boolean isSubscription) {
@@ -687,27 +693,38 @@ public class StoreManager {
         }
     }
 
+    /**
+     * @return true if billing is connected to play and updated from their cache, false otherwise
+     */
     public boolean isReady() {
         return connectionState == ConnectionState.CONNECTED;
     }
 
+    /**
+     * @param listener - executes immediately if ready or failed to connect to play. Otherwise
+     *                 queues up execution for when connection completes
+     */
     @MainThread
     public void whenReady(SuccessFailListener listener) {
-        if (connectionState == ConnectionState.UNINITIALIZED) {
-            readyListeners.add(listener);
-        } else if (connectionState == ConnectionState.CONNECTED) {
-            listener.success(connectionState);
-        } else {
-            listener.failure(connectionState);
+        if (listener != null) {
+            if (isReady()) {
+                listener.success(connectionState);
+            } else if (connectionState == ConnectionState.FAILED_TO_CONNECT) {
+                listener.failure(connectionState);
+            } else {
+                readyListeners.add(listener);
+            }
         }
     }
 
     private void notifyReadyListeners() {
         for (SuccessFailListener listener : readyListeners) {
-            if (connectionState == ConnectionState.CONNECTED) {
-                listener.success(connectionState);
-            } else {
-                listener.failure(connectionState);
+            if (listener != null) {
+                if (isReady()) {
+                    listener.success(connectionState);
+                } else {
+                    listener.failure(connectionState);
+                }
             }
         }
         readyListeners.clear();
