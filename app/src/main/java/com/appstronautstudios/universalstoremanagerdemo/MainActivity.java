@@ -30,7 +30,8 @@ public class MainActivity extends AppCompatActivity {
                 messageTV.setText("failed to purchase: " + errorCode);
             }
         });
-        StoreManager.getInstance().setupBillingProcessor(this, null, null, new SuccessFailListener() {
+        StoreManager.getInstance().setupBillingProcessor(this, null, null, null);
+        StoreManager.getInstance().whenReady(new SuccessFailListener() {
             @Override
             public void success(Object object) {
                 messageTV.setText("store billing initialized");
@@ -38,7 +39,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void failure(Object object) {
-                messageTV.setText("store billing failed to initialize.");
+                messageTV.setText("store billing failed to initialize");
             }
         });
     }

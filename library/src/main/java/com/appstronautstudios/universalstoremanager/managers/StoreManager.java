@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 
+import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
@@ -38,6 +39,12 @@ import java.util.Map;
 
 public class StoreManager {
 
+    enum ConnectionState {
+        UNINITIALIZED,
+        CONNECTED,
+        FAILED_TO_CONNECT
+    }
+
     public static final int INIT_FAIL_UNKNOWN = -99;
     public static final int PURCHASE_FAIL_UNKNOWN = -199;
     public static final int DETAIL_FAIL_UNKNOWN = -299;
@@ -50,6 +57,10 @@ public class StoreManager {
     private ArrayList<String> inAppSkus = new ArrayList<>();
     private Map<String, Purchase> purchaseCache;
     private ArrayList<StoreEventListener> listeners = new ArrayList<>();
+    private ConnectionState connectionState = ConnectionState.UNINITIALIZED;
+
+    // Listeners that get called when init completes
+    private final List<SuccessFailListener> readyListeners = new ArrayList<>();
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
     private BillingClient billingClient;
@@ -227,6 +238,9 @@ public class StoreManager {
                             connectBillingClient(retryCounter - 1, listener);
                         } else {
                             listenerFailureOnMain(listener, billingResult.getResponseCode());
+                            // toggle connectionState of manager and inform listeners
+                            connectionState = ConnectionState.FAILED_TO_CONNECT;
+                            notifyReadyListeners();
                         }
                     }
                 }
@@ -352,11 +366,17 @@ public class StoreManager {
                         savePurchasesToPrefs();
                         // inform callback
                         listenerSuccessOnMain(listener, updatedPurchases);
+                        // toggle connectionState of manager and inform listeners
+                        connectionState = ConnectionState.CONNECTED;
+                        notifyReadyListeners();
                     }
 
                     @Override
                     public void failure(Object object) {
                         listenerFailureOnMain(listener, object);
+                        // toggle connectionState of manager and inform listeners
+                        connectionState = ConnectionState.FAILED_TO_CONNECT;
+                        notifyReadyListeners();
                     }
                 });
             }
@@ -364,6 +384,9 @@ public class StoreManager {
             @Override
             public void failure(Object object) {
                 listenerFailureOnMain(listener, object);
+                // toggle connectionState of manager and inform listeners
+                connectionState = ConnectionState.FAILED_TO_CONNECT;
+                notifyReadyListeners();
             }
         });
     }
@@ -662,5 +685,31 @@ public class StoreManager {
         } else {
             return false;
         }
+    }
+
+    public boolean isReady() {
+        return connectionState == ConnectionState.CONNECTED;
+    }
+
+    @MainThread
+    public void whenReady(SuccessFailListener listener) {
+        if (connectionState == ConnectionState.UNINITIALIZED) {
+            readyListeners.add(listener);
+        } else if (connectionState == ConnectionState.CONNECTED) {
+            listener.success(connectionState);
+        } else {
+            listener.failure(connectionState);
+        }
+    }
+
+    private void notifyReadyListeners() {
+        for (SuccessFailListener listener : readyListeners) {
+            if (connectionState == ConnectionState.CONNECTED) {
+                listener.success(connectionState);
+            } else {
+                listener.failure(connectionState);
+            }
+        }
+        readyListeners.clear();
     }
 }
