@@ -12,8 +12,9 @@ public class UniversalProductDetails {
     private final String priceCurrencyCode;
     private final float priceValue; // Direct float representation of the price
     private final boolean isSubscription;
+    private final boolean hasFreeTrialAvailable;
 
-    public UniversalProductDetails(String productId, String title, String description, String priceText, String priceCurrencyCode, float priceValue, boolean isSubscription) {
+    public UniversalProductDetails(String productId, String title, String description, String priceText, String priceCurrencyCode, float priceValue, boolean isSubscription, boolean hasFreeTrialAv) {
         this.productId = productId;
         this.title = title;
         this.description = description;
@@ -21,6 +22,7 @@ public class UniversalProductDetails {
         this.priceCurrencyCode = priceCurrencyCode;
         this.priceValue = priceValue;
         this.isSubscription = isSubscription;
+        this.hasFreeTrialAvailable = hasFreeTrialAv;
     }
 
     /**
@@ -37,6 +39,7 @@ public class UniversalProductDetails {
         float priceAmount = 0.0f;
         String formattedPrice = "0.00";
         String currencyCode = "N/A";
+        boolean hasFreeT = false;
 
         if (isSubscription) {
             List<ProductDetails.SubscriptionOfferDetails> offerDetails = details.getSubscriptionOfferDetails();
@@ -49,9 +52,10 @@ public class UniversalProductDetails {
                         for (ProductDetails.PricingPhase phase : pricingPhases) {
                             // make sure we ignore free trial phase otherwise price string will show
                             // up as "FREE" for users that haven't used a trial yet
-                            if (phase.getPriceAmountMicros() > 0) {
+                            if (phase.getPriceAmountMicros() == 0) {
+                                hasFreeT = true;
+                            } else if (phase.getPriceAmountMicros() > 0) {
                                 pricingPhase = phase;
-                                break; // found a valid phase - break out
                             }
                         }
                     }
@@ -87,22 +91,9 @@ public class UniversalProductDetails {
                 formattedPrice,
                 currencyCode,
                 priceAmount,
-                isSubscription
+                isSubscription,
+                hasFreeT
         );
-    }
-
-    public boolean hasFreeTrial(ProductDetails productDetails) {
-        if (productDetails.getSubscriptionOfferDetails() != null) {
-            for (ProductDetails.SubscriptionOfferDetails offer : productDetails.getSubscriptionOfferDetails()) {
-                for (ProductDetails.PricingPhase phase : offer.getPricingPhases().getPricingPhaseList()) {
-                    // If price is 0, it's a free trial phase
-                    if (phase.getPriceAmountMicros() == 0) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     // Getters
@@ -132,5 +123,9 @@ public class UniversalProductDetails {
 
     public boolean isSubscription() {
         return isSubscription;
+    }
+
+    public boolean isFreeTrialAvailable() {
+        return hasFreeTrialAvailable;
     }
 }
