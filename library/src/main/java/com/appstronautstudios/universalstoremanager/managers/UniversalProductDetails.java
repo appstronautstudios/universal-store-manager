@@ -91,6 +91,20 @@ public class UniversalProductDetails {
         );
     }
 
+    public boolean hasFreeTrial(ProductDetails productDetails) {
+        if (productDetails.getSubscriptionOfferDetails() != null) {
+            for (ProductDetails.SubscriptionOfferDetails offer : productDetails.getSubscriptionOfferDetails()) {
+                for (ProductDetails.PricingPhase phase : offer.getPricingPhases().getPricingPhaseList()) {
+                    // If price is 0, it's a free trial phase
+                    if (phase.getPriceAmountMicros() == 0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     // Getters
     public String getProductId() {
         return productId;
