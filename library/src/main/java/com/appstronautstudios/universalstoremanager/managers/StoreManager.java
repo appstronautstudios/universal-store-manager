@@ -43,6 +43,8 @@ public class StoreManager {
 
     // listeners that get called when store lifecycle points are hit
     private ArrayList<StoreEventListener> storeEventListeners = new ArrayList<>();
+    // listeners that get called when setup completes
+    private final List<SuccessFailListener> setupListeners = new ArrayList<>();
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
     private BillingClient billingClient;
@@ -179,25 +181,27 @@ public class StoreManager {
     }
 
     private void connectBillingClient(SuccessFailListener listener) {
+        if (listener != null) {
+            setupListeners.add(listener);
+        }
+
         int connectedState = billingClient.getConnectionState();
         if (connectedState == BillingClient.ConnectionState.CONNECTED) {
-            // already connected. Update cache
-            updatePurchaseCache(listener);
+            // already connected. Update cache and notify setupListeners
+            updatePurchaseCacheAndNotify();
         } else if (connectedState == BillingClient.ConnectionState.CONNECTING) {
-            // respect that whatever process starting the connection process will eventually
-            // complete and launch the necessary callback. Do nothing
-            // TODO for anyone calling this function this is a listener black hole. Maybe risky
+            // connection in progress; listener was added to setupListeners and will be flushed on completion
         } else {
             // start initial connection
             billingClient.startConnection(new BillingClientStateListener() {
                 @Override
                 public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
                     if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        // The BillingClient is ready. Update purchase cache
-                        updatePurchaseCache(listener);
+                        // The BillingClient is ready. Update purchase cache and notify setupListeners
+                        updatePurchaseCacheAndNotify();
                     } else {
-                        // failure code. Inform listeners
-                        listenerFailureOnMain(listener, billingResult.getResponseCode());
+                        // failure code. Inform listeners and clear list
+                        notifySetupListenersFailure(billingResult.getResponseCode());
                     }
                 }
 
@@ -207,6 +211,36 @@ public class StoreManager {
                 }
             });
         }
+    }
+
+    private void updatePurchaseCacheAndNotify() {
+        updatePurchaseCache(new SuccessFailListener() {
+            @Override
+            public void success(Object object) {
+                // purchase cache successfully update. Inform setupBilling listeners and then de-reg
+                notifySetupListenersSuccess(object);
+            }
+
+            @Override
+            public void failure(Object object) {
+                // purchase cache update failure. Inform setupBilling listeners and then de-reg
+                notifySetupListenersFailure(object);
+            }
+        });
+    }
+
+    private void notifySetupListenersSuccess(Object successObject) {
+        for (SuccessFailListener l : setupListeners) {
+            listenerSuccessOnMain(l, successObject);
+        }
+        setupListeners.clear();
+    }
+
+    private void notifySetupListenersFailure(Object failureObject) {
+        for (SuccessFailListener l : setupListeners) {
+            listenerFailureOnMain(l, failureObject);
+        }
+        setupListeners.clear();
     }
 
     public void purchase(Activity activity, String productId, boolean isSubscription) {
@@ -400,8 +434,7 @@ public class StoreManager {
             }
         });
     }
-
-
+    
     /**
      * Fetch all product details as UniversalProductDetails wrapper class
      *
