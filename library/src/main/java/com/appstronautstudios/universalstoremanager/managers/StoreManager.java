@@ -2,14 +2,10 @@ package com.appstronautstudios.universalstoremanager.managers;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 
-import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
-import androidx.security.crypto.EncryptedSharedPreferences;
-import androidx.security.crypto.MasterKey;
 
 import com.android.billingclient.api.AcknowledgePurchaseParams;
 import com.android.billingclient.api.BillingClient;
@@ -25,25 +21,13 @@ import com.android.billingclient.api.QueryProductDetailsParams;
 import com.android.billingclient.api.QueryPurchasesParams;
 import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
 import com.appstronautstudios.universalstoremanager.utils.SuccessFailListener;
-import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
 
-import org.json.JSONArray;
-
-import java.io.IOException;
-import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class StoreManager {
-
-    enum ConnectionState {
-        UNINITIALIZED,
-        CONNECTED,
-        FAILED_TO_CONNECT
-    }
 
     public static final int INIT_FAIL_UNKNOWN = -99;
     public static final int PURCHASE_FAIL_UNKNOWN = -199;
@@ -56,40 +40,16 @@ public class StoreManager {
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> inAppSkus = new ArrayList<>();
     private Map<String, Purchase> purchaseCache = new HashMap<>();
-    private ConnectionState connectionState = ConnectionState.UNINITIALIZED;
 
     // listeners that get called when store lifecycle points are hit
     private ArrayList<StoreEventListener> storeEventListeners = new ArrayList<>();
-    // listeners that get called when init completes
-    private final List<SuccessFailListener> readyListeners = new ArrayList<>();
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
     private BillingClient billingClient;
 
-    private SharedPreferences storeDiskCache;
-
     private StoreManager() {
         if (INSTANCE != null) {
             throw new IllegalStateException("Already instantiated");
-        }
-    }
-
-    public void initSharedPrefs(Context context) {
-        if (storeDiskCache == null) {
-            try {
-                MasterKey masterKey = new MasterKey.Builder(context)
-                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                        .build();
-
-                storeDiskCache = EncryptedSharedPreferences.create(
-                        context,
-                        "encr",
-                        masterKey,
-                        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
-            } catch (GeneralSecurityException | IOException e) {
-                e.printStackTrace();
-            }
         }
     }
 
@@ -190,9 +150,6 @@ public class StoreManager {
     }
 
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps, SuccessFailListener listener) {
-        // initialize encrypted cache
-        initSharedPrefs(context);
-
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
             if (purchases != null) {
@@ -204,12 +161,6 @@ public class StoreManager {
 
         // store the sub and inApp ids
         setManagedSkus(subs, inApps);
-
-        // before we ask google load our prefs from cache
-        loadPurchasesFromPrefs();
-
-        // prepare listener to fire when setup is complete
-        whenReady(listener);
 
         // initialize client and start connection
         if (billingClient == null) {
@@ -245,10 +196,8 @@ public class StoreManager {
                         // The BillingClient is ready. Update purchase cache
                         updatePurchaseCache(listener);
                     } else {
-                        // failure code. Toggle connectionState of manager and inform listeners
+                        // failure code. Inform listeners
                         listenerFailureOnMain(listener, billingResult.getResponseCode());
-                        connectionState = ConnectionState.FAILED_TO_CONNECT;
-                        notifyReadyListeners();
                     }
                 }
 
@@ -371,20 +320,13 @@ public class StoreManager {
                         updatedPurchases.putAll((Map<String, Purchase>) object2);
                         // update memory cache and prefs cache
                         purchaseCache = updatedPurchases;
-                        savePurchasesToPrefs();
                         // inform callback
                         listenerSuccessOnMain(listener, updatedPurchases);
-                        // toggle connectionState of manager and inform listeners
-                        connectionState = ConnectionState.CONNECTED;
-                        notifyReadyListeners();
                     }
 
                     @Override
                     public void failure(Object object) {
                         listenerFailureOnMain(listener, object);
-                        // toggle connectionState of manager and inform listeners
-                        connectionState = ConnectionState.FAILED_TO_CONNECT;
-                        notifyReadyListeners();
                     }
                 });
             }
@@ -392,9 +334,6 @@ public class StoreManager {
             @Override
             public void failure(Object object) {
                 listenerFailureOnMain(listener, object);
-                // toggle connectionState of manager and inform listeners
-                connectionState = ConnectionState.FAILED_TO_CONNECT;
-                notifyReadyListeners();
             }
         });
     }
@@ -427,46 +366,6 @@ public class StoreManager {
                 listenerFailureOnMain(listener, billingResult.getResponseCode());
             }
         });
-    }
-
-    // Load purchases from encrypted SharedPreferences
-    private void loadPurchasesFromPrefs() {
-        if (storeDiskCache == null) return;
-
-        Gson gson = new Gson();
-        String jsonString = storeDiskCache.getString("purchases", "[]");
-        try {
-            JSONArray jsonArray = new JSONArray(jsonString);
-            for (int i = 0; i < jsonArray.length(); i++) {
-                try {
-                    Purchase p = gson.fromJson(jsonArray.getString(i), Purchase.class);
-                    for (String productId : p.getProducts()) {
-                        purchaseCache.put(productId, p);
-                    }
-                } catch (JsonSyntaxException e) {
-                    e.printStackTrace();
-                    return; // Handle error properly in production
-                }
-
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    // Save purchases to encrypted SharedPreferences
-    private void savePurchasesToPrefs() {
-        if (storeDiskCache == null) return;
-
-        Gson gson = new Gson();
-        JSONArray jsonArray = new JSONArray();
-
-        for (Map.Entry<String, Purchase> entry : purchaseCache.entrySet()) {
-            Purchase purchase = entry.getValue();
-            jsonArray.put(gson.toJson(purchase, Purchase.class)); // Add each Purchase as JSON
-        }
-
-        storeDiskCache.edit().putString("purchases", jsonArray.toString()).apply();
     }
 
     /**
@@ -694,39 +593,9 @@ public class StoreManager {
     }
 
     /**
-     * @return true if billing is connected to play and updated from their cache, false otherwise
+     * @return true if billing is connected to play, false otherwise
      */
     public boolean isReady() {
-        return connectionState == ConnectionState.CONNECTED;
-    }
-
-    /**
-     * @param listener - executes immediately if ready or failed to connect to play. Otherwise
-     *                 queues up execution for when connection completes
-     */
-    @MainThread
-    public void whenReady(SuccessFailListener listener) {
-        if (listener != null) {
-            if (isReady()) {
-                listener.success(connectionState);
-            } else if (connectionState == ConnectionState.FAILED_TO_CONNECT) {
-                listener.failure(connectionState);
-            } else {
-                readyListeners.add(listener);
-            }
-        }
-    }
-
-    private void notifyReadyListeners() {
-        for (SuccessFailListener listener : readyListeners) {
-            if (listener != null) {
-                if (isReady()) {
-                    listener.success(connectionState);
-                } else {
-                    listener.failure(connectionState);
-                }
-            }
-        }
-        readyListeners.clear();
+        return billingClient != null && billingClient.isReady();
     }
 }
