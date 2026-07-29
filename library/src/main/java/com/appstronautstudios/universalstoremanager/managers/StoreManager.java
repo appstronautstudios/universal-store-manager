@@ -218,6 +218,7 @@ public class StoreManager {
                     .build();
             billingClient = BillingClient.newBuilder(context)
                     .enablePendingPurchases(params)
+                    .enableAutoServiceReconnection()
                     .setListener(purchasesUpdatedListener)
                     .build();
         }
@@ -273,15 +274,16 @@ public class StoreManager {
                         .build()))
                 .build();
 
-        billingClient.queryProductDetailsAsync(params, (billingResult, productDetailsList) -> {
-            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && !productDetailsList.isEmpty()) {
+        billingClient.queryProductDetailsAsync(params, (billingResult, productDetailsResult) -> {
+            List<ProductDetails> detailsList = productDetailsResult.getProductDetailsList();
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && !detailsList.isEmpty()) {
                 BillingFlowParams.ProductDetailsParams.Builder productDetailsParamsBuilder =
                         BillingFlowParams.ProductDetailsParams.newBuilder()
-                                .setProductDetails(productDetailsList.get(0));
+                                .setProductDetails(detailsList.get(0));
 
                 // Ensure SubscriptionOfferDetails is not null before accessing it
                 if (isSubscription) {
-                    List<ProductDetails.SubscriptionOfferDetails> offerDetails = productDetailsList.get(0).getSubscriptionOfferDetails();
+                    List<ProductDetails.SubscriptionOfferDetails> offerDetails = detailsList.get(0).getSubscriptionOfferDetails();
                     if (offerDetails != null && !offerDetails.isEmpty()) {
                         productDetailsParamsBuilder.setOfferToken(offerDetails.get(0).getOfferToken());
                     }
@@ -333,6 +335,12 @@ public class StoreManager {
                 storePurchaseCompleteMain(null);
             }
         } else {
+            // https://developer.android.com/reference/com/android/billingclient/api/BillingClient.BillingResponseCode
+            // as of 9.1.0 there are several new errors types, but we are currently still treating
+            // them all as generic failures
+            // PAYMENT_DECLINED_DUE_TO_INSUFFICIENT_FUNDS
+            // USER_INELIGIBLE
+            // NO_APPLICABLE_SUB_RESPONSE_CODE
             storePurchaseErrorMain(responseCode);
         }
     }
@@ -577,24 +585,22 @@ public class StoreManager {
                         .setProductList(products)
                         .build();
 
-        billingClient.queryProductDetailsAsync(
-                queryProductDetailsParams,
-                (billingResult, productDetailsList) -> {
-                    if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        try {
-                            ArrayList<UniversalProductDetails> details = new ArrayList<>();
-                            for (ProductDetails productDetails : productDetailsList) {
-                                details.add(UniversalProductDetails.fromProductDetails(productDetails));
-                            }
-                            listenerSuccessOnMain(listener, details);
-                        } catch (Exception e) {
-                            listenerFailureOnMain(listener, PARSING_FAIL_UNKNOWN);
-                        }
-                    } else {
-                        listenerFailureOnMain(listener, billingResult.getResponseCode());
+        billingClient.queryProductDetailsAsync(queryProductDetailsParams, (billingResult, productDetailsResult) -> {
+            List<ProductDetails> detailsList = productDetailsResult.getProductDetailsList();
+            if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
+                try {
+                    ArrayList<UniversalProductDetails> details = new ArrayList<>();
+                    for (ProductDetails productDetails : detailsList) {
+                        details.add(UniversalProductDetails.fromProductDetails(productDetails));
                     }
+                    listenerSuccessOnMain(listener, details);
+                } catch (Exception e) {
+                    listenerFailureOnMain(listener, PARSING_FAIL_UNKNOWN);
                 }
-        );
+            } else {
+                listenerFailureOnMain(listener, billingResult.getResponseCode());
+            }
+        });
     }
 
     /**

@@ -1,11 +1,11 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 33
+    compileSdkVersion 35
     defaultConfig {
         applicationId "com.appstronautstudios.universalstoremanagerdemo"
         minSdkVersion 23
-        targetSdkVersion 33
+        targetSdkVersion 35
         versionCode 1
         versionName "1.0.0"
         multiDexEnabled true
@@ -21,7 +21,6 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation 'androidx.appcompat:appcompat:1.2.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.0.4'
+    implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation project(path: ':library')
 }
