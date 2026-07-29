@@ -223,11 +223,11 @@ public class StoreManager {
                     .build();
         }
 
-        // make sure that we're connected (this will internally check)
-        connectBillingClient(2, null);
+        // make sure that we're connected
+        connectBillingClient(listener);
     }
 
-    private void connectBillingClient(int retryCounter, SuccessFailListener listener) {
+    private void connectBillingClient(SuccessFailListener listener) {
         int connectedState = billingClient.getConnectionState();
         if (connectedState == BillingClient.ConnectionState.CONNECTED) {
             // already connected. Update cache
@@ -237,7 +237,7 @@ public class StoreManager {
             // complete and launch the necessary callback. Do nothing
             // TODO for anyone calling this function this is a listener black hole. Maybe risky
         } else {
-            // connection closed or disconnected. Restart
+            // start initial connection
             billingClient.startConnection(new BillingClientStateListener() {
                 @Override
                 public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
@@ -245,22 +245,16 @@ public class StoreManager {
                         // The BillingClient is ready. Update purchase cache
                         updatePurchaseCache(listener);
                     } else {
-                        if (retryCounter > 0) {
-                            connectBillingClient(retryCounter - 1, listener);
-                        } else {
-                            listenerFailureOnMain(listener, billingResult.getResponseCode());
-                            // toggle connectionState of manager and inform listeners
-                            connectionState = ConnectionState.FAILED_TO_CONNECT;
-                            notifyReadyListeners();
-                        }
+                        // failure code. Toggle connectionState of manager and inform listeners
+                        listenerFailureOnMain(listener, billingResult.getResponseCode());
+                        connectionState = ConnectionState.FAILED_TO_CONNECT;
+                        notifyReadyListeners();
                     }
                 }
 
                 @Override
                 public void onBillingServiceDisconnected() {
-                    // Try to restart the connection on the next request to
-                    // Google Play by calling the startConnection() method.
-                    connectBillingClient(0, listener);
+                    // Left intentionally empty because enableAutoServiceReconnection() handles reconnections
                 }
             });
         }
