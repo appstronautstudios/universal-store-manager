@@ -162,12 +162,6 @@ public class StoreManager {
     }
 
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps, SuccessFailListener listener) {
-        // initialize encrypted disk cache and then load our purchases from it. This is only
-        // meant to be a redundancy against play store issues and startup timing. These loaded
-        // purchases should always be immediately overwritten by billing connection and fetch
-        initDiskCache(context);
-        loadPurchasesFromDiskCache();
-
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
             if (purchases != null) {
@@ -182,6 +176,12 @@ public class StoreManager {
 
         // initialize client and start connection
         if (billingClient == null) {
+            // initialize encrypted disk cache and then load our purchases from it. This is only
+            // meant to be a redundancy against play store issues and startup timing. These loaded
+            // purchases should always be immediately overwritten by billing connection and fetch
+            initDiskCache(context);
+            loadPurchasesFromDiskCache();
+
             PendingPurchasesParams params = PendingPurchasesParams.newBuilder()
                     .enableOneTimeProducts()
                     .build();
