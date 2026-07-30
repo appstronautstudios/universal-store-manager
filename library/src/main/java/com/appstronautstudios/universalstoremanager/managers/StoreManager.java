@@ -70,11 +70,7 @@ public class StoreManager {
     public static StoreManager getInstance() {
         return INSTANCE;
     }
-
-    private boolean isStoreLoaded() {
-        return storeMemoryCache != null;
-    }
-
+    
     public void setDebuggable(boolean debuggable) {
         this.debuggable = debuggable;
     }
@@ -539,18 +535,14 @@ public class StoreManager {
      * @return - true if purchased any provided SKUs, false otherwise
      */
     public boolean hasAnyConsumable(@NonNull List<String> consumableSkus) {
-        if (isStoreLoaded()) {
-            if (debuggable) {
-                return true;
-            } else {
-                for (String sku : consumableSkus) {
-                    if (storeMemoryCache.containsKey(sku)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
+        if (debuggable) {
+            return true;
         } else {
+            for (String sku : consumableSkus) {
+                if (storeMemoryCache.containsKey(sku)) {
+                    return true;
+                }
+            }
             return false;
         }
     }
@@ -576,18 +568,14 @@ public class StoreManager {
      * @return - true if subscribed to any provided SKUs, false otherwise
      */
     public boolean isSubscribedToAny(@NonNull List<String> skus) {
-        if (isStoreLoaded()) {
-            if (debuggable) {
-                return true;
-            } else {
-                for (String sku : skus) {
-                    if (storeMemoryCache.containsKey(sku)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
+        if (debuggable) {
+            return true;
         } else {
+            for (String sku : skus) {
+                if (storeMemoryCache.containsKey(sku)) {
+                    return true;
+                }
+            }
             return false;
         }
     }
@@ -690,7 +678,7 @@ public class StoreManager {
             e.printStackTrace();
         }
     }
-    
+
     private void savePurchasesToDiskCache() {
         if (storeDiskCache == null) return;
 
