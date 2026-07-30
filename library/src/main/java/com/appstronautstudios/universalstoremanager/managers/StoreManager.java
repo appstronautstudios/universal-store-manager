@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.os.Looper;
 
 import androidx.annotation.NonNull;
+import androidx.core.util.Consumer;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 
@@ -115,43 +116,12 @@ public class StoreManager {
     }
 
     /**
-     * utility function to force callback on main thread
+     * Generic helper to post listener callbacks safely on the main thread.
      */
-    private void storePurchaseCompleteMain(String sku) {
+    private void notifyListeners(Consumer<StoreEventListener> action) {
         new Handler(Looper.getMainLooper()).post(() -> {
-            if (!storeEventListeners.isEmpty()) {
-                for (StoreEventListener l : storeEventListeners) {
-                    l.storePurchaseComplete(sku);
-                }
-            }
-        });
-    }
-
-    /**
-     * utility function to force callback on main thread
-     */
-    private void storePurchasePendingMain(String sku) {
-        new Handler(Looper.getMainLooper()).post(() -> {
-            if (!storeEventListeners.isEmpty()) {
-                for (StoreEventListener l : storeEventListeners) {
-                    l.storePurchasePending(sku);
-                }
-            }
-        });
-    }
-
-    /**
-     * utility function to force callback on main thread
-     */
-    private void storePurchaseErrorMain(int code) {
-        new Handler(Looper.getMainLooper()).post(new Runnable() {
-            @Override
-            public void run() {
-                if (!storeEventListeners.isEmpty()) {
-                    for (StoreEventListener l : storeEventListeners) {
-                        l.storePurchaseError(code);
-                    }
-                }
+            for (StoreEventListener listener : storeEventListeners) {
+                action.accept(listener);
             }
         });
     }
@@ -271,7 +241,7 @@ public class StoreManager {
 
                 billingClient.launchBillingFlow(activity, flowParams);
             } else {
-                storePurchaseErrorMain(billingResult.getResponseCode());
+                notifyListeners(listener -> listener.storePurchaseError(billingResult.getResponseCode()));
             }
         });
     }
@@ -288,20 +258,20 @@ public class StoreManager {
                 acknowledgePurchase(purchase, new SuccessFailListener() {
                     @Override
                     public void success(Object object) {
-                        storePurchaseCompleteMain(null);
+                        notifyListeners(listener -> listener.storePurchaseComplete(purchase));
                     }
 
                     @Override
                     public void failure(Object object) {
                         if (object instanceof BillingResult) {
-                            storePurchaseErrorMain(((BillingResult) object).getResponseCode());
+                            notifyListeners(listener -> listener.storePurchaseError(((BillingResult) object).getResponseCode()));
                         } else {
-                            storePurchaseErrorMain(PURCHASE_FAIL_UNKNOWN);
+                            notifyListeners(listener -> listener.storePurchaseError(PURCHASE_FAIL_UNKNOWN));
                         }
                     }
                 });
             } else if (purchase.getPurchaseState() == Purchase.PurchaseState.PENDING) {
-                storePurchasePendingMain(null);
+                notifyListeners(listener -> listener.storePurchasePending(purchase));
             }
         } else if (responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
             if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
@@ -310,7 +280,7 @@ public class StoreManager {
                 for (String productId : purchase.getProducts()) {
                     addToMemoryCache(productId, purchase, true);
                 }
-                storePurchaseCompleteMain(null);
+                notifyListeners(listener -> listener.storePurchaseComplete(purchase));
             }
         } else {
             // https://developer.android.com/reference/com/android/billingclient/api/BillingClient.BillingResponseCode
@@ -319,7 +289,7 @@ public class StoreManager {
             // PAYMENT_DECLINED_DUE_TO_INSUFFICIENT_FUNDS
             // USER_INELIGIBLE
             // NO_APPLICABLE_SUB_RESPONSE_CODE
-            storePurchaseErrorMain(responseCode);
+            notifyListeners(listener -> listener.storePurchaseError(responseCode));
         }
     }
 

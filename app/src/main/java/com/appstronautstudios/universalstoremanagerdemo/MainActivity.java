@@ -5,6 +5,7 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.android.billingclient.api.Purchase;
 import com.appstronautstudios.universalstoremanager.managers.StoreManager;
 import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
 import com.appstronautstudios.universalstoremanager.utils.SuccessFailListener;
@@ -19,9 +20,15 @@ public class MainActivity extends AppCompatActivity {
         final TextView messageTV = findViewById(R.id.message);
 
         StoreManager.getInstance().addEventListener(new StoreEventListener() {
+
             @Override
-            public void storePurchaseComplete(String sku) {
-                messageTV.setText("purchased: " + sku);
+            public void storePurchasePending(Purchase purchase) {
+                messageTV.setText("pending: " + String.join(", ", purchase.getProducts()));
+            }
+
+            @Override
+            public void storePurchaseComplete(Purchase purchase) {
+                messageTV.setText("purchased: " + String.join(", ", purchase.getProducts()));
             }
 
             @Override
