@@ -28,6 +28,8 @@ import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 
 import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -674,21 +676,37 @@ public class StoreManager {
     private void loadPurchasesFromDiskCache() {
         if (storeDiskCache == null) return;
 
-        Gson gson = new Gson();
         String jsonString = storeDiskCache.getString("purchases", "[]");
+        Gson gson = new Gson(); // Kept temporarily for legacy fallback
+
         try {
             JSONArray jsonArray = new JSONArray(jsonString);
             for (int i = 0; i < jsonArray.length(); i++) {
                 try {
-                    Purchase p = gson.fromJson(jsonArray.getString(i), Purchase.class);
-                    for (String productId : p.getProducts()) {
-                        addToMemoryCache(productId, p, false);
-                    }
-                } catch (JsonSyntaxException e) {
-                    e.printStackTrace();
-                    return; // Handle error properly in production
-                }
+                    // TRY NEW FORMAT FIRST
+                    JSONObject obj = jsonArray.getJSONObject(i);
+                    String originalJson = obj.getString("originalJson");
+                    String signature = obj.getString("signature");
 
+                    Purchase p = new Purchase(originalJson, signature);
+                    addPurchaseToCache(p);
+
+                } catch (JSONException e) {
+                    // FALLBACK TO LEGACY GSON FORMAT
+                    try {
+                        String rawJsonItem = jsonArray.getString(i);
+                        Purchase legacyPurchase = gson.fromJson(rawJsonItem, Purchase.class);
+
+                        if (legacyPurchase != null && legacyPurchase.getOriginalJson() != null) {
+                            // Reconstruct properly using valid native API
+                            Purchase p = new Purchase(legacyPurchase.getOriginalJson(), legacyPurchase.getSignature());
+                            addPurchaseToCache(p);
+                        }
+                    } catch (Exception legacyEx) {
+                        legacyEx.printStackTrace();
+                        // Skip unparseable legacy entry
+                    }
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -698,14 +716,28 @@ public class StoreManager {
     private void savePurchasesToDiskCache() {
         if (storeDiskCache == null) return;
 
-        Gson gson = new Gson();
         JSONArray jsonArray = new JSONArray();
 
-        for (Map.Entry<String, Purchase> entry : storeMemoryCache.entrySet()) {
-            Purchase purchase = entry.getValue();
-            jsonArray.put(gson.toJson(purchase, Purchase.class)); // Add each Purchase as JSON
+        // Deduplicate purchases by token/object before saving
+        for (Purchase purchase : storeMemoryCache.values()) {
+            try {
+                JSONObject obj = new JSONObject();
+                obj.put("originalJson", purchase.getOriginalJson());
+                obj.put("signature", purchase.getSignature());
+                jsonArray.put(obj);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
 
         storeDiskCache.edit().putString("purchases", jsonArray.toString()).apply();
+    }
+
+    private void addPurchaseToCache(Purchase p) {
+        if (p != null && p.getProducts() != null) {
+            for (String productId : p.getProducts()) {
+                addToMemoryCache(productId, p, false);
+            }
+        }
     }
 }
