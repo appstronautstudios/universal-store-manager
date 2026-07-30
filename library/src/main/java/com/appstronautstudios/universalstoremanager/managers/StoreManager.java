@@ -48,7 +48,6 @@ public class StoreManager {
     private boolean debuggable;
     private ArrayList<String> subscriptionSkus = new ArrayList<>();
     private ArrayList<String> inAppSkus = new ArrayList<>();
-    private Map<String, Purchase> purchaseCache = new HashMap<>();
 
     // listeners that get called when store lifecycle points are hit
     private ArrayList<StoreEventListener> storeEventListeners = new ArrayList<>();
@@ -57,6 +56,9 @@ public class StoreManager {
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
     private BillingClient billingClient;
+
+    // caches
+    private Map<String, Purchase> storeMemoryCache = new HashMap<>();
     private SharedPreferences storeDiskCache;
 
     private StoreManager() {
@@ -70,7 +72,7 @@ public class StoreManager {
     }
 
     private boolean isStoreLoaded() {
-        return purchaseCache != null;
+        return storeMemoryCache != null;
     }
 
     public void setDebuggable(boolean debuggable) {
@@ -204,7 +206,7 @@ public class StoreManager {
         int connectedState = billingClient.getConnectionState();
         if (connectedState == BillingClient.ConnectionState.CONNECTED) {
             // already connected. Update cache and notify setupListeners
-            updatePurchaseCacheAndNotify();
+            updateMemoryCacheFromPlayAndNotify();
         } else if (connectedState == BillingClient.ConnectionState.CONNECTING) {
             // connection in progress; listener was added to setupListeners and will be flushed on completion
         } else {
@@ -214,7 +216,7 @@ public class StoreManager {
                 public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
                     if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
                         // The BillingClient is ready. Update purchase cache and notify setupListeners
-                        updatePurchaseCacheAndNotify();
+                        updateMemoryCacheFromPlayAndNotify();
                     } else {
                         // failure code. Inform listeners and clear list
                         notifySetupListenersFailure(billingResult.getResponseCode());
@@ -227,22 +229,6 @@ public class StoreManager {
                 }
             });
         }
-    }
-
-    private void updatePurchaseCacheAndNotify() {
-        updatePurchaseCache(new SuccessFailListener() {
-            @Override
-            public void success(Object object) {
-                // purchase cache successfully update. Inform setupBilling listeners and then de-reg
-                notifySetupListenersSuccess(object);
-            }
-
-            @Override
-            public void failure(Object object) {
-                // purchase cache update failure. Inform setupBilling listeners and then de-reg
-                notifySetupListenersFailure(object);
-            }
-        });
     }
 
     private void notifySetupListenersSuccess(Object successObject) {
@@ -298,7 +284,7 @@ public class StoreManager {
             if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
                 // Add purchase to cache
                 for (String productId : purchase.getProducts()) {
-                    purchaseCache.put(productId, purchase);
+                    storeMemoryCache.put(productId, purchase);
                 }
 
                 acknowledgePurchase(purchase, new SuccessFailListener() {
@@ -323,7 +309,7 @@ public class StoreManager {
             if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
                 // Add purchase to cache
                 for (String productId : purchase.getProducts()) {
-                    purchaseCache.put(productId, purchase);
+                    storeMemoryCache.put(productId, purchase);
                 }
                 storePurchaseCompleteMain(null);
             }
@@ -351,42 +337,6 @@ public class StoreManager {
                 }
             });
         }
-    }
-
-    /**
-     * Clear cache and then fetch INAPP and SUBS purchases
-     *
-     * @param listener - success/fail of cache update operation. Returns int code on failure
-     */
-    private void updatePurchaseCache(SuccessFailListener listener) {
-        getPurchases(BillingClient.ProductType.INAPP, new SuccessFailListener() {
-            @Override
-            public void success(Object object1) {
-                getPurchases(BillingClient.ProductType.SUBS, new SuccessFailListener() {
-                    @Override
-                    public void success(Object object2) {
-                        Map<String, Purchase> updatedPurchases = new HashMap<>();
-                        updatedPurchases.putAll((Map<String, Purchase>) object1);
-                        updatedPurchases.putAll((Map<String, Purchase>) object2);
-                        // update memory cache and prefs cache
-                        purchaseCache = updatedPurchases;
-                        savePurchasesToDiskCache();
-                        // inform callback
-                        listenerSuccessOnMain(listener, updatedPurchases);
-                    }
-
-                    @Override
-                    public void failure(Object object) {
-                        listenerFailureOnMain(listener, object);
-                    }
-                });
-            }
-
-            @Override
-            public void failure(Object object) {
-                listenerFailureOnMain(listener, object);
-            }
-        });
     }
 
     /**
@@ -428,7 +378,7 @@ public class StoreManager {
      *                 Success will return token.
      */
     public void consumePurchase(String sku, SuccessFailListener listener) {
-        Purchase purchase = purchaseCache.get(sku); // Retrieve from cache
+        Purchase purchase = storeMemoryCache.get(sku); // Retrieve from cache
 
         if (purchase == null) {
             // Purchase not in cache. Cannot consume without it.
@@ -444,7 +394,7 @@ public class StoreManager {
         billingClient.consumeAsync(consumeParams, (billingResult, purchaseToken) -> {
             if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
                 // Remove the purchase from cache since it's now consumed
-                purchaseCache.remove(sku);
+                storeMemoryCache.remove(sku);
                 listenerSuccessOnMain(listener, purchaseToken);
             } else {
                 listenerFailureOnMain(listener, billingResult.getResponseCode());
@@ -594,7 +544,7 @@ public class StoreManager {
                 return true;
             } else {
                 for (String sku : consumableSkus) {
-                    if (purchaseCache.containsKey(sku)) {
+                    if (storeMemoryCache.containsKey(sku)) {
                         return true;
                     }
                 }
@@ -631,7 +581,7 @@ public class StoreManager {
                 return true;
             } else {
                 for (String sku : skus) {
-                    if (purchaseCache.containsKey(sku)) {
+                    if (storeMemoryCache.containsKey(sku)) {
                         return true;
                     }
                 }
@@ -649,6 +599,55 @@ public class StoreManager {
         return billingClient != null && billingClient.isReady();
     }
 
+    // MEMORY CACHE UTILS
+    private void updateMemoryCacheFromPlayAndNotify() {
+        updateMemoryCacheFromPlay(new SuccessFailListener() {
+            @Override
+            public void success(Object object) {
+                // purchase cache successfully update. Inform setupBilling listeners and then de-reg
+                notifySetupListenersSuccess(object);
+            }
+
+            @Override
+            public void failure(Object object) {
+                // purchase cache update failure. Inform setupBilling listeners and then de-reg
+                notifySetupListenersFailure(object);
+            }
+        });
+    }
+
+    private void updateMemoryCacheFromPlay(SuccessFailListener listener) {
+        getPurchases(BillingClient.ProductType.INAPP, new SuccessFailListener() {
+            @Override
+            public void success(Object object1) {
+                getPurchases(BillingClient.ProductType.SUBS, new SuccessFailListener() {
+                    @Override
+                    public void success(Object object2) {
+                        Map<String, Purchase> updatedPurchases = new HashMap<>();
+                        updatedPurchases.putAll((Map<String, Purchase>) object1);
+                        updatedPurchases.putAll((Map<String, Purchase>) object2);
+                        // update memory cache and prefs cache
+                        storeMemoryCache = updatedPurchases;
+                        savePurchasesToDiskCache();
+                        // inform callback
+                        listenerSuccessOnMain(listener, updatedPurchases);
+                    }
+
+                    @Override
+                    public void failure(Object object) {
+                        listenerFailureOnMain(listener, object);
+                    }
+                });
+            }
+
+            @Override
+            public void failure(Object object) {
+                listenerFailureOnMain(listener, object);
+            }
+        });
+    }
+
+    // DISK CACHE UTILS
     private void initDiskCache(Context context) {
         if (storeDiskCache == null) {
             try {
@@ -679,7 +678,7 @@ public class StoreManager {
                 try {
                     Purchase p = gson.fromJson(jsonArray.getString(i), Purchase.class);
                     for (String productId : p.getProducts()) {
-                        purchaseCache.put(productId, p);
+                        storeMemoryCache.put(productId, p);
                     }
                 } catch (JsonSyntaxException e) {
                     e.printStackTrace();
@@ -691,15 +690,14 @@ public class StoreManager {
             e.printStackTrace();
         }
     }
-
-    // Save purchases to encrypted SharedPreferences
+    
     private void savePurchasesToDiskCache() {
         if (storeDiskCache == null) return;
 
         Gson gson = new Gson();
         JSONArray jsonArray = new JSONArray();
 
-        for (Map.Entry<String, Purchase> entry : purchaseCache.entrySet()) {
+        for (Map.Entry<String, Purchase> entry : storeMemoryCache.entrySet()) {
             Purchase purchase = entry.getValue();
             jsonArray.put(gson.toJson(purchase, Purchase.class)); // Add each Purchase as JSON
         }
