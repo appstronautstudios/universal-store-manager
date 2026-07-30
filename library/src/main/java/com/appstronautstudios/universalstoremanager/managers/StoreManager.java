@@ -593,14 +593,14 @@ public class StoreManager {
     private void addToMemoryCache(String productId, Purchase purchase, boolean alsoDiskCache) {
         storeMemoryCache.put(productId, purchase);
         if (alsoDiskCache) {
-            addToDiskCache(productId, purchase);
+            savePurchasesToDiskCache();
         }
     }
 
     private void removeFromMemoryCache(String productId, boolean alsoDiskCache) {
         storeMemoryCache.remove(productId);
         if (alsoDiskCache) {
-            removeFromDiskCache(productId);
+            savePurchasesToDiskCache();
         }
     }
 
@@ -693,18 +693,6 @@ public class StoreManager {
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    private void addToDiskCache(String productId, Purchase purchase) {
-        if (storeDiskCache == null) return;
-
-        // todo individual addition to disk cache
-    }
-
-    private void removeFromDiskCache(String productId) {
-        if (storeDiskCache == null) return;
-
-        // todo individual removal from disk cache
     }
 
     private void savePurchasesToDiskCache() {
