@@ -25,7 +25,6 @@ import com.android.billingclient.api.QueryPurchasesParams;
 import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
 import com.appstronautstudios.universalstoremanager.utils.SuccessFailListener;
 import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -592,6 +591,14 @@ public class StoreManager {
     }
 
     // MEMORY CACHE UTILS
+    private void addToMemoryCache(Purchase p, boolean alsoDiskCache) {
+        if (p != null && p.getProducts() != null) {
+            for (String productId : p.getProducts()) {
+                addToMemoryCache(productId, p, alsoDiskCache);
+            }
+        }
+    }
+
     private void addToMemoryCache(String productId, Purchase purchase, boolean alsoDiskCache) {
         storeMemoryCache.put(productId, purchase);
         if (alsoDiskCache) {
@@ -673,11 +680,13 @@ public class StoreManager {
         }
     }
 
+    /**
+     * load purchases currently saved in disk cache and overwrite the memory cache with them
+     */
     private void loadPurchasesFromDiskCache() {
         if (storeDiskCache == null) return;
 
         String jsonString = storeDiskCache.getString("purchases", "[]");
-        Gson gson = new Gson(); // Kept temporarily for legacy fallback
 
         try {
             JSONArray jsonArray = new JSONArray(jsonString);
@@ -689,18 +698,18 @@ public class StoreManager {
                     String signature = obj.getString("signature");
 
                     Purchase p = new Purchase(originalJson, signature);
-                    addPurchaseToCache(p);
-
+                    addToMemoryCache(p, false);
                 } catch (JSONException e) {
                     // FALLBACK TO LEGACY GSON FORMAT
                     try {
+                        Gson gson = new Gson();
                         String rawJsonItem = jsonArray.getString(i);
                         Purchase legacyPurchase = gson.fromJson(rawJsonItem, Purchase.class);
 
                         if (legacyPurchase != null && legacyPurchase.getOriginalJson() != null) {
                             // Reconstruct properly using valid native API
                             Purchase p = new Purchase(legacyPurchase.getOriginalJson(), legacyPurchase.getSignature());
-                            addPurchaseToCache(p);
+                            addToMemoryCache(p, false);
                         }
                     } catch (Exception legacyEx) {
                         legacyEx.printStackTrace();
@@ -713,6 +722,9 @@ public class StoreManager {
         }
     }
 
+    /**
+     * overwrite disk cache with purchases currently stored in the memory cache
+     */
     private void savePurchasesToDiskCache() {
         if (storeDiskCache == null) return;
 
@@ -731,13 +743,5 @@ public class StoreManager {
         }
 
         storeDiskCache.edit().putString("purchases", jsonArray.toString()).apply();
-    }
-
-    private void addPurchaseToCache(Purchase p) {
-        if (p != null && p.getProducts() != null) {
-            for (String productId : p.getProducts()) {
-                addToMemoryCache(productId, p, false);
-            }
-        }
     }
 }
