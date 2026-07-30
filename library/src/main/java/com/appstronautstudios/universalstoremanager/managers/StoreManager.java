@@ -2,10 +2,13 @@ package com.appstronautstudios.universalstoremanager.managers;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 
 import androidx.annotation.NonNull;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
 
 import com.android.billingclient.api.AcknowledgePurchaseParams;
 import com.android.billingclient.api.BillingClient;
@@ -21,7 +24,13 @@ import com.android.billingclient.api.QueryProductDetailsParams;
 import com.android.billingclient.api.QueryPurchasesParams;
 import com.appstronautstudios.universalstoremanager.utils.StoreEventListener;
 import com.appstronautstudios.universalstoremanager.utils.SuccessFailListener;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 
+import org.json.JSONArray;
+
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -48,6 +57,7 @@ public class StoreManager {
 
     private PurchasesUpdatedListener purchasesUpdatedListener;
     private BillingClient billingClient;
+    private SharedPreferences storeDiskCache;
 
     private StoreManager() {
         if (INSTANCE != null) {
@@ -152,6 +162,12 @@ public class StoreManager {
     }
 
     public void setupBillingProcessor(final Context context, ArrayList<String> subs, ArrayList<String> inApps, SuccessFailListener listener) {
+        // initialize encrypted disk cache and then load our purchases from it. This is only
+        // meant to be a redundancy against play store issues and startup timing. These loaded
+        // purchases should always be immediately overwritten by billing connection and fetch
+        initDiskCache(context);
+        loadPurchasesFromDiskCache();
+
         // initialize listener
         purchasesUpdatedListener = (billingResult, purchases) -> {
             if (purchases != null) {
@@ -354,6 +370,7 @@ public class StoreManager {
                         updatedPurchases.putAll((Map<String, Purchase>) object2);
                         // update memory cache and prefs cache
                         purchaseCache = updatedPurchases;
+                        savePurchasesToDiskCache();
                         // inform callback
                         listenerSuccessOnMain(listener, updatedPurchases);
                     }
@@ -434,7 +451,7 @@ public class StoreManager {
             }
         });
     }
-    
+
     /**
      * Fetch all product details as UniversalProductDetails wrapper class
      *
@@ -630,5 +647,63 @@ public class StoreManager {
      */
     public boolean isReady() {
         return billingClient != null && billingClient.isReady();
+    }
+
+    private void initDiskCache(Context context) {
+        if (storeDiskCache == null) {
+            try {
+                MasterKey masterKey = new MasterKey.Builder(context)
+                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                        .build();
+
+                storeDiskCache = EncryptedSharedPreferences.create(
+                        context,
+                        "encr",
+                        masterKey,
+                        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
+            } catch (GeneralSecurityException | IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void loadPurchasesFromDiskCache() {
+        if (storeDiskCache == null) return;
+
+        Gson gson = new Gson();
+        String jsonString = storeDiskCache.getString("purchases", "[]");
+        try {
+            JSONArray jsonArray = new JSONArray(jsonString);
+            for (int i = 0; i < jsonArray.length(); i++) {
+                try {
+                    Purchase p = gson.fromJson(jsonArray.getString(i), Purchase.class);
+                    for (String productId : p.getProducts()) {
+                        purchaseCache.put(productId, p);
+                    }
+                } catch (JsonSyntaxException e) {
+                    e.printStackTrace();
+                    return; // Handle error properly in production
+                }
+
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Save purchases to encrypted SharedPreferences
+    private void savePurchasesToDiskCache() {
+        if (storeDiskCache == null) return;
+
+        Gson gson = new Gson();
+        JSONArray jsonArray = new JSONArray();
+
+        for (Map.Entry<String, Purchase> entry : purchaseCache.entrySet()) {
+            Purchase purchase = entry.getValue();
+            jsonArray.put(gson.toJson(purchase, Purchase.class)); // Add each Purchase as JSON
+        }
+
+        storeDiskCache.edit().putString("purchases", jsonArray.toString()).apply();
     }
 }
