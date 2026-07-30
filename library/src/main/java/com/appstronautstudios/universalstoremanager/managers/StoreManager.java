@@ -70,7 +70,7 @@ public class StoreManager {
     public static StoreManager getInstance() {
         return INSTANCE;
     }
-    
+
     public void setDebuggable(boolean debuggable) {
         this.debuggable = debuggable;
     }
@@ -278,9 +278,10 @@ public class StoreManager {
     private void handlePurchase(Purchase purchase, int responseCode) {
         if (responseCode == BillingClient.BillingResponseCode.OK) {
             if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
-                // Add purchase to cache
+                // purchase is like a "receipt" and here we add all products on that receipt to
+                // our mem cache. Theoretically only a problem if we have consumables which we don't
                 for (String productId : purchase.getProducts()) {
-                    storeMemoryCache.put(productId, purchase);
+                    addToMemoryCache(productId, purchase, true);
                 }
 
                 acknowledgePurchase(purchase, new SuccessFailListener() {
@@ -303,9 +304,10 @@ public class StoreManager {
             }
         } else if (responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
             if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
-                // Add purchase to cache
+                // purchase is like a "receipt" and here we add all products on that receipt to
+                // our mem cache. Theoretically only a problem if we have consumables which we don't
                 for (String productId : purchase.getProducts()) {
-                    storeMemoryCache.put(productId, purchase);
+                    addToMemoryCache(productId, purchase, true);
                 }
                 storePurchaseCompleteMain(null);
             }
@@ -390,7 +392,7 @@ public class StoreManager {
         billingClient.consumeAsync(consumeParams, (billingResult, purchaseToken) -> {
             if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
                 // Remove the purchase from cache since it's now consumed
-                storeMemoryCache.remove(sku);
+                removeFromMemoryCache(sku, true);
                 listenerSuccessOnMain(listener, purchaseToken);
             } else {
                 listenerFailureOnMain(listener, billingResult.getResponseCode());
@@ -588,6 +590,20 @@ public class StoreManager {
     }
 
     // MEMORY CACHE UTILS
+    private void addToMemoryCache(String productId, Purchase purchase, boolean alsoDiskCache) {
+        storeMemoryCache.put(productId, purchase);
+        if (alsoDiskCache) {
+            addToDiskCache(productId, purchase);
+        }
+    }
+
+    private void removeFromMemoryCache(String productId, boolean alsoDiskCache) {
+        storeMemoryCache.remove(productId);
+        if (alsoDiskCache) {
+            removeFromDiskCache(productId);
+        }
+    }
+
     private void updateMemoryCacheFromPlayAndNotify() {
         updateMemoryCacheFromPlay(new SuccessFailListener() {
             @Override
@@ -666,7 +682,7 @@ public class StoreManager {
                 try {
                     Purchase p = gson.fromJson(jsonArray.getString(i), Purchase.class);
                     for (String productId : p.getProducts()) {
-                        storeMemoryCache.put(productId, p);
+                        addToMemoryCache(productId, p, false);
                     }
                 } catch (JsonSyntaxException e) {
                     e.printStackTrace();
@@ -677,6 +693,18 @@ public class StoreManager {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private void addToDiskCache(String productId, Purchase purchase) {
+        if (storeDiskCache == null) return;
+
+        // todo individual addition to disk cache
+    }
+
+    private void removeFromDiskCache(String productId) {
+        if (storeDiskCache == null) return;
+
+        // todo individual removal from disk cache
     }
 
     private void savePurchasesToDiskCache() {
